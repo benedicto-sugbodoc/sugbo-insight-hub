@@ -41,7 +41,7 @@ export function brandRamp(count: number): string[] {
     // interpolate #AEB6EB -> #2E3A96
     const from = [0xae, 0xb6, 0xeb];
     const to = [0x2e, 0x3a, 0x96];
-    const rgb = from.map((c, k) => Math.round(c + (to[k] - c) * t));
+    const rgb = from.map((c, k) => Math.round(c + ((to[k] ?? c) - c) * t));
     return `#${rgb.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
   });
 }
@@ -229,7 +229,7 @@ export function MetricCard({
       </div>
       <span className="text-2xl font-semibold tracking-tight text-text-primary">{value}</span>
       {typeof delta === "number" ? (
-        <Trend delta={delta} suffix={deltaSuffix} invert={invertDelta} />
+        <Trend delta={delta} {...(deltaSuffix ? { suffix: deltaSuffix } : {})} invert={!!invertDelta} />
       ) : null}
       {secondary ? <span className="text-xs text-text-muted">{secondary}</span> : null}
       {note ? (
