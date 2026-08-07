@@ -10,33 +10,132 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AnalyticsRouteImport } from './routes/analytics'
+import { Route as AnalyticsIndexRouteImport } from './routes/analytics.index'
+import { Route as AnalyticsClaimsRouteImport } from './routes/analytics.claims'
+import { Route as AnalyticsClinicalRouteImport } from './routes/analytics.clinical'
+import { Route as AnalyticsExecutiveRouteImport } from './routes/analytics.executive'
+import { Route as AnalyticsLaboratoryRouteImport } from './routes/analytics.laboratory'
+import { Route as AnalyticsQualityRouteImport } from './routes/analytics.quality'
+import { Route as AnalyticsRevenueRouteImport } from './routes/analytics.revenue'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AnalyticsRoute = AnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AnalyticsIndexRoute = AnalyticsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
+const AnalyticsClaimsRoute = AnalyticsClaimsRouteImport.update({
+  id: '/claims',
+  path: '/claims',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
+const AnalyticsClinicalRoute = AnalyticsClinicalRouteImport.update({
+  id: '/clinical',
+  path: '/clinical',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
+const AnalyticsExecutiveRoute = AnalyticsExecutiveRouteImport.update({
+  id: '/executive',
+  path: '/executive',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
+const AnalyticsLaboratoryRoute = AnalyticsLaboratoryRouteImport.update({
+  id: '/laboratory',
+  path: '/laboratory',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
+const AnalyticsQualityRoute = AnalyticsQualityRouteImport.update({
+  id: '/quality',
+  path: '/quality',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
+const AnalyticsRevenueRoute = AnalyticsRevenueRouteImport.update({
+  id: '/revenue',
+  path: '/revenue',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRouteWithChildren
+  '/analytics/claims': typeof AnalyticsClaimsRoute
+  '/analytics/clinical': typeof AnalyticsClinicalRoute
+  '/analytics/executive': typeof AnalyticsExecutiveRoute
+  '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
+  '/analytics/quality': typeof AnalyticsQualityRoute
+  '/analytics/revenue': typeof AnalyticsRevenueRoute
+  '/analytics/': typeof AnalyticsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/analytics/claims': typeof AnalyticsClaimsRoute
+  '/analytics/clinical': typeof AnalyticsClinicalRoute
+  '/analytics/executive': typeof AnalyticsExecutiveRoute
+  '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
+  '/analytics/quality': typeof AnalyticsQualityRoute
+  '/analytics/revenue': typeof AnalyticsRevenueRoute
+  '/analytics': typeof AnalyticsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRouteWithChildren
+  '/analytics/claims': typeof AnalyticsClaimsRoute
+  '/analytics/clinical': typeof AnalyticsClinicalRoute
+  '/analytics/executive': typeof AnalyticsExecutiveRoute
+  '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
+  '/analytics/quality': typeof AnalyticsQualityRoute
+  '/analytics/revenue': typeof AnalyticsRevenueRoute
+  '/analytics/': typeof AnalyticsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/analytics'
+    | '/analytics/claims'
+    | '/analytics/clinical'
+    | '/analytics/executive'
+    | '/analytics/laboratory'
+    | '/analytics/quality'
+    | '/analytics/revenue'
+    | '/analytics/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/analytics/claims'
+    | '/analytics/clinical'
+    | '/analytics/executive'
+    | '/analytics/laboratory'
+    | '/analytics/quality'
+    | '/analytics/revenue'
+    | '/analytics'
+  id:
+    | '__root__'
+    | '/'
+    | '/analytics'
+    | '/analytics/claims'
+    | '/analytics/clinical'
+    | '/analytics/executive'
+    | '/analytics/laboratory'
+    | '/analytics/quality'
+    | '/analytics/revenue'
+    | '/analytics/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AnalyticsRoute: typeof AnalyticsRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +147,92 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/analytics': {
+      id: '/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/analytics/': {
+      id: '/analytics/'
+      path: '/'
+      fullPath: '/analytics/'
+      preLoaderRoute: typeof AnalyticsIndexRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
+    '/analytics/claims': {
+      id: '/analytics/claims'
+      path: '/claims'
+      fullPath: '/analytics/claims'
+      preLoaderRoute: typeof AnalyticsClaimsRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
+    '/analytics/clinical': {
+      id: '/analytics/clinical'
+      path: '/clinical'
+      fullPath: '/analytics/clinical'
+      preLoaderRoute: typeof AnalyticsClinicalRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
+    '/analytics/executive': {
+      id: '/analytics/executive'
+      path: '/executive'
+      fullPath: '/analytics/executive'
+      preLoaderRoute: typeof AnalyticsExecutiveRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
+    '/analytics/laboratory': {
+      id: '/analytics/laboratory'
+      path: '/laboratory'
+      fullPath: '/analytics/laboratory'
+      preLoaderRoute: typeof AnalyticsLaboratoryRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
+    '/analytics/quality': {
+      id: '/analytics/quality'
+      path: '/quality'
+      fullPath: '/analytics/quality'
+      preLoaderRoute: typeof AnalyticsQualityRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
+    '/analytics/revenue': {
+      id: '/analytics/revenue'
+      path: '/revenue'
+      fullPath: '/analytics/revenue'
+      preLoaderRoute: typeof AnalyticsRevenueRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
   }
 }
 
+interface AnalyticsRouteChildren {
+  AnalyticsClaimsRoute: typeof AnalyticsClaimsRoute
+  AnalyticsClinicalRoute: typeof AnalyticsClinicalRoute
+  AnalyticsExecutiveRoute: typeof AnalyticsExecutiveRoute
+  AnalyticsLaboratoryRoute: typeof AnalyticsLaboratoryRoute
+  AnalyticsQualityRoute: typeof AnalyticsQualityRoute
+  AnalyticsRevenueRoute: typeof AnalyticsRevenueRoute
+  AnalyticsIndexRoute: typeof AnalyticsIndexRoute
+}
+
+const AnalyticsRouteChildren: AnalyticsRouteChildren = {
+  AnalyticsClaimsRoute: AnalyticsClaimsRoute,
+  AnalyticsClinicalRoute: AnalyticsClinicalRoute,
+  AnalyticsExecutiveRoute: AnalyticsExecutiveRoute,
+  AnalyticsLaboratoryRoute: AnalyticsLaboratoryRoute,
+  AnalyticsQualityRoute: AnalyticsQualityRoute,
+  AnalyticsRevenueRoute: AnalyticsRevenueRoute,
+  AnalyticsIndexRoute: AnalyticsIndexRoute,
+}
+
+const AnalyticsRouteWithChildren = AnalyticsRoute._addFileChildren(
+  AnalyticsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AnalyticsRoute: AnalyticsRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -77,15 +77,22 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "SugboDoc — Hospital Operations & Analytics" },
+      {
+        name: "description",
+        content:
+          "SugboDoc: multi-tenant Philippine healthcare platform for hospital operations, PhilHealth claims and clinical analytics.",
+      },
+      { name: "author", content: "SugboDoc" },
+      { property: "og:title", content: "SugboDoc — Hospital Operations & Analytics" },
+      {
+        property: "og:description",
+        content: "Hospital operations, PhilHealth claims and clinical analytics for Philippine facilities.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
     ],
+
     links: [
       {
         rel: "stylesheet",
@@ -114,11 +121,56 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+const primaryNav = [
+  { label: "Dashboard", to: "/" as const },
+  { label: "Patients", to: null },
+  { label: "Encounters", to: null },
+  { label: "Billing", to: null },
+  { label: "Claims", to: null },
+  { label: "Laboratory", to: null },
+  { label: "Settings", to: null },
+  { label: "Analytics", to: "/analytics" as const },
+];
+
+function AppNav() {
+  return (
+    <header className="border-b border-border bg-card">
+      <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-4 px-4 py-2">
+        <span className="text-sm font-semibold tracking-tight text-brand">SugboDoc</span>
+        <nav className="flex flex-wrap items-center gap-1">
+          {primaryNav.map((item) =>
+            item.to ? (
+              <Link
+                key={item.label}
+                to={item.to}
+                className="rounded-md px-2.5 py-1.5 text-sm text-text-secondary transition-colors hover:bg-muted hover:text-text-primary"
+                activeProps={{ className: "rounded-md px-2.5 py-1.5 text-sm font-medium text-brand bg-brand/10" }}
+                activeOptions={{ exact: item.to === "/" }}
+              >
+                {item.label}
+              </Link>
+            ) : (
+              <span
+                key={item.label}
+                className="cursor-not-allowed rounded-md px-2.5 py-1.5 text-sm text-text-muted/70"
+                title="Module not part of this analytics scaffold"
+              >
+                {item.label}
+              </span>
+            ),
+          )}
+        </nav>
+      </div>
+    </header>
+  );
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
     <QueryClientProvider client={queryClient}>
+      <AppNav />
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
     </QueryClientProvider>
