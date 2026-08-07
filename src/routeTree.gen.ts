@@ -15,6 +15,7 @@ import { Route as AnalyticsIndexRouteImport } from './routes/analytics.index'
 import { Route as AnalyticsClaimsRouteImport } from './routes/analytics.claims'
 import { Route as AnalyticsClinicalRouteImport } from './routes/analytics.clinical'
 import { Route as AnalyticsExecutiveRouteImport } from './routes/analytics.executive'
+import { Route as AnalyticsLaboratoryRouteImport } from './routes/analytics.laboratory'
 import { Route as AnalyticsQualityRouteImport } from './routes/analytics.quality'
 import { Route as AnalyticsRevenueRouteImport } from './routes/analytics.revenue'
 
@@ -48,6 +49,11 @@ const AnalyticsExecutiveRoute = AnalyticsExecutiveRouteImport.update({
   path: '/executive',
   getParentRoute: () => AnalyticsRoute,
 } as any)
+const AnalyticsLaboratoryRoute = AnalyticsLaboratoryRouteImport.update({
+  id: '/laboratory',
+  path: '/laboratory',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
 const AnalyticsQualityRoute = AnalyticsQualityRouteImport.update({
   id: '/quality',
   path: '/quality',
@@ -65,6 +71,7 @@ export interface FileRoutesByFullPath {
   '/analytics/claims': typeof AnalyticsClaimsRoute
   '/analytics/clinical': typeof AnalyticsClinicalRoute
   '/analytics/executive': typeof AnalyticsExecutiveRoute
+  '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/analytics/': typeof AnalyticsIndexRoute
@@ -74,6 +81,7 @@ export interface FileRoutesByTo {
   '/analytics/claims': typeof AnalyticsClaimsRoute
   '/analytics/clinical': typeof AnalyticsClinicalRoute
   '/analytics/executive': typeof AnalyticsExecutiveRoute
+  '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/analytics': typeof AnalyticsIndexRoute
@@ -85,6 +93,7 @@ export interface FileRoutesById {
   '/analytics/claims': typeof AnalyticsClaimsRoute
   '/analytics/clinical': typeof AnalyticsClinicalRoute
   '/analytics/executive': typeof AnalyticsExecutiveRoute
+  '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/analytics/': typeof AnalyticsIndexRoute
@@ -97,6 +106,7 @@ export interface FileRouteTypes {
     | '/analytics/claims'
     | '/analytics/clinical'
     | '/analytics/executive'
+    | '/analytics/laboratory'
     | '/analytics/quality'
     | '/analytics/revenue'
     | '/analytics/'
@@ -106,6 +116,7 @@ export interface FileRouteTypes {
     | '/analytics/claims'
     | '/analytics/clinical'
     | '/analytics/executive'
+    | '/analytics/laboratory'
     | '/analytics/quality'
     | '/analytics/revenue'
     | '/analytics'
@@ -116,6 +127,7 @@ export interface FileRouteTypes {
     | '/analytics/claims'
     | '/analytics/clinical'
     | '/analytics/executive'
+    | '/analytics/laboratory'
     | '/analytics/quality'
     | '/analytics/revenue'
     | '/analytics/'
@@ -170,6 +182,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnalyticsExecutiveRouteImport
       parentRoute: typeof AnalyticsRoute
     }
+    '/analytics/laboratory': {
+      id: '/analytics/laboratory'
+      path: '/laboratory'
+      fullPath: '/analytics/laboratory'
+      preLoaderRoute: typeof AnalyticsLaboratoryRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
     '/analytics/quality': {
       id: '/analytics/quality'
       path: '/quality'
@@ -191,6 +210,7 @@ interface AnalyticsRouteChildren {
   AnalyticsClaimsRoute: typeof AnalyticsClaimsRoute
   AnalyticsClinicalRoute: typeof AnalyticsClinicalRoute
   AnalyticsExecutiveRoute: typeof AnalyticsExecutiveRoute
+  AnalyticsLaboratoryRoute: typeof AnalyticsLaboratoryRoute
   AnalyticsQualityRoute: typeof AnalyticsQualityRoute
   AnalyticsRevenueRoute: typeof AnalyticsRevenueRoute
   AnalyticsIndexRoute: typeof AnalyticsIndexRoute
@@ -200,6 +220,7 @@ const AnalyticsRouteChildren: AnalyticsRouteChildren = {
   AnalyticsClaimsRoute: AnalyticsClaimsRoute,
   AnalyticsClinicalRoute: AnalyticsClinicalRoute,
   AnalyticsExecutiveRoute: AnalyticsExecutiveRoute,
+  AnalyticsLaboratoryRoute: AnalyticsLaboratoryRoute,
   AnalyticsQualityRoute: AnalyticsQualityRoute,
   AnalyticsRevenueRoute: AnalyticsRevenueRoute,
   AnalyticsIndexRoute: AnalyticsIndexRoute,
@@ -216,13 +237,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

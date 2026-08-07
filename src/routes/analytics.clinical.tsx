@@ -324,9 +324,7 @@ function ClinicalPage() {
               }))}
               dataKey="size"
               stroke="#fff"
-              content={(nodeProps) => (
-                <ProcedureTreemapContent {...(nodeProps as object)} onSelect={(name: string) => setDrill({ kind: "procedure", name })} />
-              )}
+              content={renderProcedureCell((name: string) => setDrill({ kind: "procedure", name }))}
             />
           </ResponsiveContainer>
         </PanelCard>
@@ -710,51 +708,43 @@ function ClinicalPage() {
   );
 }
 
-/** Custom treemap cell renderer: category header depth vs procedure leaf depth. */
-function ProcedureTreemapContent(props: unknown) {
-  const p = props as {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    depth: number;
-    name: string;
-    revenue?: number;
-    volume?: number;
-    onSelect?: (name: string) => void;
+/** Custom treemap cell renderer factory: category header depth vs procedure leaf depth. */
+function renderProcedureCell(onSelect: (name: string) => void) {
+  // eslint-disable-next-line react/display-name
+  return (props: unknown) => {
+    const p = props as {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      depth: number;
+      name: string;
+      revenue?: number;
+      volume?: number;
+    };
+    const { x, y, width, height, depth, name } = p;
+    const isLeaf = depth === 2;
+    const revenue = p.revenue ?? 0;
+    const intensity = Math.min(1, revenue / 1_200_000);
+    const fill = isLeaf
+      ? `rgba(68, 84, 195, ${0.25 + intensity * 0.6})`
+      : "rgba(138,143,152,0.12)";
+    return (
+      <g onClick={() => isLeaf && onSelect(name)} className={isLeaf ? "cursor-pointer" : undefined}>
+        <rect x={x} y={y} width={width} height={height} style={{ fill, stroke: "#fff", strokeWidth: 2 }} />
+        {width > 50 && height > 18 ? (
+          <text x={x + 6} y={y + 16} fontSize={isLeaf ? 11 : 12} fontWeight={isLeaf ? 500 : 600} fill="#1f2430">
+            {name}
+          </text>
+        ) : null}
+        {isLeaf && width > 60 && height > 32 ? (
+          <text x={x + 6} y={y + 30} fontSize={10} fill="#4b5060">
+            {num(p.volume ?? 0)} cases
+          </text>
+        ) : null}
+      </g>
+    );
   };
-  const { x, y, width, height, depth, name } = p;
-  const isLeaf = depth === 2;
-  const revenue = p.revenue ?? 0;
-  const intensity = Math.min(1, revenue / 1_200_000);
-  const fill = isLeaf
-    ? `rgba(68, 84, 195, ${0.25 + intensity * 0.6})`
-    : "rgba(138,143,152,0.12)";
-  return (
-    <g
-      onClick={() => {
-        if (isLeaf) onSelectFromProps(props);
-      }}
-      className={isLeaf ? "cursor-pointer" : undefined}
-    >
-      <rect x={x} y={y} width={width} height={height} style={{ fill, stroke: "#fff", strokeWidth: 2 }} />
-      {width > 50 && height > 18 ? (
-        <text x={x + 6} y={y + 16} fontSize={isLeaf ? 11 : 12} fontWeight={isLeaf ? 500 : 600} fill="#1f2430">
-          {name}
-        </text>
-      ) : null}
-      {isLeaf && width > 60 && height > 32 ? (
-        <text x={x + 6} y={y + 30} fontSize={10} fill="#4b5060">
-          {num(p.volume ?? 0)} cases
-        </text>
-      ) : null}
-    </g>
-  );
-}
-
-function onSelectFromProps(props: unknown) {
-  const p = props as { name: string; onSelect?: (name: string) => void };
-  p.onSelect?.(p.name);
 }
 
 /** Simple hand-rolled SVG sankey with two columns and curved links. */
