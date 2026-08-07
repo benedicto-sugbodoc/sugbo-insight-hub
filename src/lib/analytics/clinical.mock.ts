@@ -3,16 +3,15 @@
  * Shapes are FHIR R4 flavored (Condition, Procedure, Encounter, EpisodeOfCare,
  * ServiceRequest referrals) flattened for chart consumption.
  */
+import {
+  PH_DEPARTMENTS,
+  PH_DEPARTMENT_COLORS,
+  PH_PHYSICIANS,
+  PH_TOP_DIAGNOSES,
+  phPatientName,
+} from "./ph-constants";
 
-export const PALETTE_DEPTS = [
-  "Internal Medicine",
-  "Surgery",
-  "Obstetrics",
-  "Pediatrics",
-  "Orthopedics",
-  "Cardiology",
-  "Emergency Medicine",
-] as const;
+export const PALETTE_DEPTS = PH_DEPARTMENTS;
 
 export type Department = (typeof PALETTE_DEPTS)[number];
 
@@ -21,20 +20,7 @@ export interface IcdCode {
   description: string;
 }
 
-export const ICD_CODES: IcdCode[] = [
-  { code: "J44.9", description: "COPD, unspecified" },
-  { code: "I10", description: "Essential hypertension" },
-  { code: "E11.9", description: "Type 2 diabetes mellitus" },
-  { code: "A09", description: "Gastroenteritis and colitis" },
-  { code: "N39.0", description: "Urinary tract infection" },
-  { code: "J18.9", description: "Pneumonia, unspecified" },
-  { code: "S52.5", description: "Fracture of lower forearm" },
-  { code: "K29.7", description: "Gastritis" },
-  { code: "O80", description: "Single spontaneous delivery" },
-  { code: "M25.5", description: "Joint pain" },
-  { code: "I21.9", description: "Acute myocardial infarction" },
-  { code: "A41.9", description: "Sepsis, unspecified organism" },
-];
+export const ICD_CODES: IcdCode[] = PH_TOP_DIAGNOSES;
 
 export interface HeatmapCell {
   department: Department;
@@ -162,15 +148,7 @@ export interface ClinicalData {
   specialtyAcceptance: SpecialtyAcceptance[];
 }
 
-const DEPT_COLORS: Record<Department, string> = {
-  "Internal Medicine": "#4454C3",
-  Surgery: "#1A5CA8",
-  Obstetrics: "#6B4C9A",
-  Pediatrics: "#1A7A3C",
-  Orthopedics: "#E67E22",
-  Cardiology: "#C0392B",
-  "Emergency Medicine": "#8B0000",
-};
+const DEPT_COLORS: Record<Department, string> = PH_DEPARTMENT_COLORS;
 
 const months12 = [
   "Sep 25",
@@ -206,8 +184,6 @@ function buildHeatmap(): HeatmapCell[] {
 
 function buildHeatmapDrill(): Record<string, HeatmapDrillCase[]> {
   const drill: Record<string, HeatmapDrillCase[]> = {};
-  const physicians = ["Dr. A. Villanueva", "Dr. M. Sarmiento", "Dr. J. Uy", "Dr. L. Cabrera", "Dr. R. Ocampo"];
-  const surnames = ["Reyes", "Dela Cruz", "Garcia", "Lim", "Bautista", "Tan", "Santos"];
   const outcomes = ["Recovered", "Improved", "Transferred", "HAMA", "Expired"];
   PALETTE_DEPTS.forEach((department, di) => {
     months12.forEach((month, mi) => {
@@ -215,8 +191,8 @@ function buildHeatmapDrill(): Record<string, HeatmapDrillCase[]> {
       const n = 3 + ((di + mi) % 4);
       drill[key] = Array.from({ length: n }, (_, i) => ({
         encounterId: `ENC-2026-${1000 + di * 100 + mi * 10 + i}`,
-        patient: `${surnames[(di + i) % surnames.length]}, ${["Maria", "Juan", "Ana", "Paolo"][i % 4]}`,
-        physician: physicians[(di + i) % physicians.length]!,
+        patient: phPatientName(di * 10 + i, i % 2 === 0 ? "female" : "male"),
+        physician: PH_PHYSICIANS[(di + i) % PH_PHYSICIANS.length]!,
         icd10: ICD_CODES[(di + mi + i) % ICD_CODES.length]!.code,
         outcome: outcomes[(di + i) % outcomes.length]!,
       }));
@@ -233,7 +209,9 @@ function buildDiseaseTrends(): DiseaseTrendSeries[] {
     description: dx.description,
     color: trendColors[i % trendColors.length]!,
     points: months12.map((month, mi) => {
-      const count = Math.round(40 + i * 6 + Math.sin(mi / 2 + i) * 14 + seededRand(i * 17 + mi) * 8);
+      const count = Math.round(
+        40 + i * 6 + Math.sin(mi / 2 + i) * 14 + seededRand(i * 17 + mi) * 8,
+      );
       return { month, count, ratePer1000: Number((count / 10.5).toFixed(2)) };
     }),
   }));
@@ -242,13 +220,13 @@ function buildDiseaseTrends(): DiseaseTrendSeries[] {
 function buildComorbidity(): ComorbidityBubble[] {
   const pairs: [string, string][] = [
     ["E11.9", "I10"],
-    ["J44.9", "J18.9"],
-    ["I10", "I21.9"],
-    ["A41.9", "N39.0"],
+    ["J18.9", "J06.9"],
+    ["I10", "C50.9"],
+    ["A09", "N39.0"],
     ["K29.7", "E11.9"],
-    ["S52.5", "M25.5"],
+    ["M54.5", "I10"],
     ["O80", "N39.0"],
-    ["I21.9", "A41.9"],
+    ["A15.0", "E11.9"],
   ];
   return pairs.map(([p, c], i) => {
     const department = PALETTE_DEPTS[i % PALETTE_DEPTS.length]!;
@@ -342,7 +320,14 @@ function buildSurgeons(): SurgeonRow[] {
 
 function buildOrRooms() {
   const rooms = ["OR-1", "OR-2", "OR-3", "OR-4"];
-  const procs = ["Appendectomy", "Cholecystectomy", "Cesarean Section", "ORIF Fracture", "Cataract Extraction", "Hernia Repair"];
+  const procs = [
+    "Appendectomy",
+    "Cholecystectomy",
+    "Cesarean Section",
+    "ORIF Fracture",
+    "Cataract Extraction",
+    "Hernia Repair",
+  ];
   return rooms.map((room, ri) => {
     const blocks: OrBlock[] = [];
     let cursor = 7 + (ri % 2);
@@ -369,22 +354,30 @@ function buildDischarge(): DischargeMonth[] {
     const transferred = 6 + (i % 3);
     const improved = 60 + ((i * 3) % 20);
     const recovered = 260 + ((i * 5) % 40);
-    return { month, Recovered: recovered, Improved: improved, Transferred: transferred, HAMA: hama, Expired: expired };
+    return {
+      month,
+      Recovered: recovered,
+      Improved: improved,
+      Transferred: transferred,
+      HAMA: hama,
+      Expired: expired,
+    };
   });
 }
 
 function buildReadmission(): ReadmissionPoint[] {
-  return months12.map((month, i) => ({ month, rate: Number((4 + Math.sin(i / 2) * 4 + (i % 4)).toFixed(1)) }));
+  return months12.map((month, i) => ({
+    month,
+    rate: Number((4 + Math.sin(i / 2) * 4 + (i % 4)).toFixed(1)),
+  }));
 }
 
 function buildReadmissionCases(): ReadmissionCase[] {
-  const physicians = ["Dr. A. Villanueva", "Dr. M. Sarmiento", "Dr. J. Uy", "Dr. L. Cabrera"];
-  const surnames = ["Reyes", "Dela Cruz", "Garcia", "Lim", "Bautista"];
   return Array.from({ length: 14 }, (_, i) => ({
-    patient: `${surnames[i % surnames.length]}, ${["Maria", "Juan", "Ana", "Paolo"][i % 4]}`,
+    patient: phPatientName(i, i % 2 === 0 ? "female" : "male"),
     originalDx: ICD_CODES[i % ICD_CODES.length]!.description,
     department: PALETTE_DEPTS[i % PALETTE_DEPTS.length]!,
-    physician: physicians[i % physicians.length]!,
+    physician: PH_PHYSICIANS[i % PH_PHYSICIANS.length]!,
     daysToReadmit: 3 + (i % 27),
   }));
 }
@@ -425,7 +418,14 @@ function buildReferralCases(): Record<string, ReferralCase[]> {
 }
 
 function buildSpecialtyAcceptance(): SpecialtyAcceptance[] {
-  const specialties = ["Cardiology", "Nephrology", "Neurology", "Oncology", "Pediatric Surgery", "Endocrinology"];
+  const specialties = [
+    "Cardiology",
+    "Nephrology",
+    "Neurology",
+    "Oncology",
+    "Pediatric Surgery",
+    "Endocrinology",
+  ];
   return specialties.map((specialty, i) => ({
     specialty,
     acceptanceRate: Number((60 + i * 6 + seededRand(i * 2) * 10).toFixed(1)),

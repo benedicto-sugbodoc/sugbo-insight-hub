@@ -16,9 +16,24 @@ export interface Barangay {
   id: string;
   name: string;
   population: number;
+  /** Physical BHC facility this barangay is clustered under (5 facilities serve the 15 barangays). */
   bhc: string;
+  bhcId: string;
   phn: string;
 }
+
+/**
+ * 5 physical Barangay Health Center facilities, each serving a 3-barangay
+ * catchment — matches the "5 BHCs in the LGU mock data" mock-data spec
+ * while keeping the richer 15-barangay geography for choropleth/drill-down.
+ */
+export const BHC_FACILITIES = [
+  { id: "bhc-lahug", name: "Lahug Health Center" },
+  { id: "bhc-guadalupe", name: "Guadalupe RHU" },
+  { id: "bhc-labangon", name: "Labangon RHU" },
+  { id: "bhc-pardo", name: "Pardo District Health Center" },
+  { id: "bhc-sambag", name: "Sambag Health Center" },
+] as const;
 
 export const BARANGAYS: Barangay[] = [
   {
@@ -26,109 +41,125 @@ export const BARANGAYS: Barangay[] = [
     name: "Lahug",
     population: 22400,
     bhc: "Lahug Health Center",
+    bhcId: "bhc-lahug",
     phn: "N. Villaraza, RN",
-  },
-  {
-    id: "brgy-guadalupe",
-    name: "Guadalupe",
-    population: 31800,
-    bhc: "Guadalupe RHU",
-    phn: "C. Espina, RN",
-  },
-  {
-    id: "brgy-mabolo",
-    name: "Mabolo",
-    population: 27650,
-    bhc: "Mabolo Health Center",
-    phn: "J. Densing, RN",
-  },
-  {
-    id: "brgy-talamban",
-    name: "Talamban",
-    population: 45200,
-    bhc: "Talamban RHU",
-    phn: "M. Otadoy, RN",
   },
   {
     id: "brgy-banilad",
     name: "Banilad",
     population: 18900,
-    bhc: "Banilad Health Center",
+    bhc: "Lahug Health Center",
+    bhcId: "bhc-lahug",
     phn: "R. Suarez, RN",
   },
   {
     id: "brgy-capsite",
     name: "Capitol Site",
     population: 15200,
-    bhc: "Capitol Site Health Center",
+    bhc: "Lahug Health Center",
+    bhcId: "bhc-lahug",
     phn: "A. Rosales, RN",
+  },
+  {
+    id: "brgy-guadalupe",
+    name: "Guadalupe",
+    population: 31800,
+    bhc: "Guadalupe RHU",
+    bhcId: "bhc-guadalupe",
+    phn: "C. Espina, RN",
+  },
+  {
+    id: "brgy-mabolo",
+    name: "Mabolo",
+    population: 27650,
+    bhc: "Guadalupe RHU",
+    bhcId: "bhc-guadalupe",
+    phn: "J. Densing, RN",
+  },
+  {
+    id: "brgy-talamban",
+    name: "Talamban",
+    population: 45200,
+    bhc: "Guadalupe RHU",
+    bhcId: "bhc-guadalupe",
+    phn: "M. Otadoy, RN",
   },
   {
     id: "brgy-labangon",
     name: "Labangon",
     population: 33600,
     bhc: "Labangon RHU",
+    bhcId: "bhc-labangon",
     phn: "T. Camara, RN",
-  },
-  {
-    id: "brgy-pardo",
-    name: "Pardo",
-    population: 29800,
-    bhc: "Pardo District Health Center",
-    phn: "L. Ybañez, RN",
-  },
-  {
-    id: "brgy-bulacao",
-    name: "Bulacao",
-    population: 24100,
-    bhc: "Bulacao Health Center",
-    phn: "E. Quijano, RN",
-  },
-  {
-    id: "brgy-basakpardo",
-    name: "Basak Pardo",
-    population: 26700,
-    bhc: "Basak Pardo Health Center",
-    phn: "S. Noval, RN",
   },
   {
     id: "brgy-tisa",
     name: "Tisa",
     population: 19300,
-    bhc: "Tisa Health Center",
+    bhc: "Labangon RHU",
+    bhcId: "bhc-labangon",
     phn: "P. Alcoseba, RN",
   },
   {
     id: "brgy-inayawan",
     name: "Inayawan",
     population: 16800,
-    bhc: "Inayawan Health Center",
+    bhc: "Labangon RHU",
+    bhcId: "bhc-labangon",
     phn: "G. Maceda, RN",
+  },
+  {
+    id: "brgy-pardo",
+    name: "Pardo",
+    population: 29800,
+    bhc: "Pardo District Health Center",
+    bhcId: "bhc-pardo",
+    phn: "L. Ybañez, RN",
+  },
+  {
+    id: "brgy-bulacao",
+    name: "Bulacao",
+    population: 24100,
+    bhc: "Pardo District Health Center",
+    bhcId: "bhc-pardo",
+    phn: "E. Quijano, RN",
+  },
+  {
+    id: "brgy-basakpardo",
+    name: "Basak Pardo",
+    population: 26700,
+    bhc: "Pardo District Health Center",
+    bhcId: "bhc-pardo",
+    phn: "S. Noval, RN",
   },
   {
     id: "brgy-sambag1",
     name: "Sambag I",
     population: 14200,
-    bhc: "Sambag I Health Center",
+    bhc: "Sambag Health Center",
+    bhcId: "bhc-sambag",
     phn: "D. Torrejos, RN",
   },
   {
     id: "brgy-sambag2",
     name: "Sambag II",
     population: 17600,
-    bhc: "Sambag II Health Center",
+    bhc: "Sambag Health Center",
+    bhcId: "bhc-sambag",
     phn: "F. Batiancila, RN",
   },
   {
     id: "brgy-cogonramos",
     name: "Cogon Ramos",
     population: 20500,
-    bhc: "Cogon Ramos Health Center",
+    bhc: "Sambag Health Center",
+    bhcId: "bhc-sambag",
     phn: "V. Empuerto, RN",
   },
 ];
 
-export const BHC_LIST = BARANGAYS.map((b) => b.bhc);
+/** 5 unique BHC facility names (use this, not a per-barangay map, for BHC-level charts). */
+export const BHC_LIST = BHC_FACILITIES.map((b) => b.name);
 
 export const TOTAL_POPULATION = BARANGAYS.reduce((s, b) => s + b.population, 0);
 

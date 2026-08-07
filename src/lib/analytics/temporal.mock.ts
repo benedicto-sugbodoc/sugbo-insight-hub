@@ -5,6 +5,7 @@
  * evening/weekend surge) — a realistic contrast for a Level 3 hospital.
  */
 import type { HourWeekdayCell } from "@/components/analytics/temporal-heatmap";
+import { PH_DEPARTMENTS } from "./ph-constants";
 
 function seeded(i: number, salt: number): number {
   const x = Math.sin(i * 12.9898 + salt * 78.233) * 43758.5453;
@@ -15,14 +16,7 @@ function seededRange(i: number, min: number, max: number, salt: number): number 
 }
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-export const TEMPORAL_DEPARTMENTS = [
-  "Internal Medicine",
-  "Surgery",
-  "Pediatrics",
-  "Obstetrics",
-  "Orthopedics",
-  "Cardiology",
-];
+export const TEMPORAL_DEPARTMENTS = PH_DEPARTMENTS;
 
 function opdVolume(dayIndex: number, hour: number, i: number): number {
   const weekday = dayIndex < 5;

@@ -6,6 +6,7 @@ import {
   ExternalLink,
   FileText,
   Link2,
+  Lock,
   MessageSquarePlus,
   RotateCcw,
   Table as TableIcon,
@@ -96,6 +97,37 @@ export function RoleSwitcher({
         </button>
       ))}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Role gate — wraps restricted (Admin-only) report/dashboard content  */
+/* with a graceful placeholder for non-Admin mock roles, e.g. the      */
+/* Maternal Death Audit and Physician Activity reports.                */
+/* ------------------------------------------------------------------ */
+
+export function RoleGate({
+  role,
+  allow = ["Admin"],
+  label = "This section is restricted to Admin roles.",
+  children,
+}: {
+  role: MockRole;
+  allow?: MockRole[];
+  label?: string;
+  children?: React.ReactNode;
+}) {
+  if (allow.includes(role)) return <>{children}</>;
+  return (
+    <Card className="border-dashed">
+      <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
+        <Lock className="size-6 text-text-muted" aria-hidden="true" />
+        <p className="max-w-sm text-sm text-text-muted">{label}</p>
+        <p className="text-xs text-text-muted">
+          Switch to Admin using the role switcher above to view this content.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -474,7 +506,11 @@ export function AnnotationList({
           <MessageSquarePlus className="size-2.5" />
           {a.x}: {a.note.length > 28 ? `${a.note.slice(0, 28)}…` : a.note}
           {onRemove ? (
-            <button onClick={() => onRemove(a.id)} className="opacity-0 group-hover:opacity-100">
+            <button
+              onClick={() => onRemove(a.id)}
+              className="opacity-0 group-hover:opacity-100"
+              aria-label={`Remove annotation: ${a.note}`}
+            >
               <X className="size-2.5" />
             </button>
           ) : null}

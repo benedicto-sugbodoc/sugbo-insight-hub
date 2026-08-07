@@ -5,7 +5,7 @@
  * 24/7 profile, useful for staffing and clinic-hour planning.
  */
 import type { HourWeekdayCell } from "@/components/analytics/temporal-heatmap";
-import { BARANGAYS } from "./shared.mock";
+import { BHC_LIST } from "./shared.mock";
 
 function seeded(i: number, salt: number): number {
   const x = Math.sin(i * 12.9898 + salt * 78.233) * 43758.5453;
@@ -16,7 +16,7 @@ function seededRange(i: number, min: number, max: number, salt: number): number 
 }
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-export const TEMPORAL_BHCS = BARANGAYS.slice(0, 6).map((b) => b.bhc);
+export const TEMPORAL_BHCS = BHC_LIST;
 
 function konsultaVolume(dayIndex: number, hour: number, i: number): number {
   if (dayIndex === 6) return 0; // closed Sundays

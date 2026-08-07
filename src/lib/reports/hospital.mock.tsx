@@ -9,6 +9,12 @@
 import type { ReactNode } from "react";
 import type { ReportConfig, ReportDrawerData } from "@/components/reports/types";
 import { REPORT_TODAY } from "@/components/reports/export-utils";
+import {
+  PH_DEPARTMENTS,
+  PH_PHYSICIANS,
+  PH_TOP_DIAGNOSES,
+  phPatientName,
+} from "@/lib/analytics/ph-constants";
 
 // Type-erased registry: each report below is authored against its own concrete row type
 // and only erased at this boundary so heterogeneous reports can share one array.
@@ -53,36 +59,13 @@ function StatusChip({
   );
 }
 
-const departments = [
-  "Internal Medicine",
-  "Surgery",
-  "Obstetrics",
-  "Pediatrics",
-  "Orthopedics",
-  "Cardiology",
-  "Emergency",
-  "ICU",
-];
-const physicianPool = [
-  { name: "Dr. A. Villanueva", pan: "PAN-00214", specialty: "Internal Medicine" },
-  { name: "Dr. M. Sarmiento", pan: "PAN-00389", specialty: "Surgery" },
-  { name: "Dr. J. Uy", pan: "PAN-00457", specialty: "Obstetrics" },
-  { name: "Dr. L. Cabrera", pan: "PAN-00512", specialty: "Pediatrics" },
-  { name: "Dr. R. Ocampo", pan: "PAN-00601", specialty: "Orthopedics" },
-  { name: "Dr. K. Mendoza", pan: "PAN-00733", specialty: "Cardiology" },
-];
-const diagnosisPool: [string, string][] = [
-  ["J44.9", "COPD, unspecified"],
-  ["I10", "Essential hypertension"],
-  ["E11.9", "Type 2 diabetes mellitus"],
-  ["A09", "Gastroenteritis and colitis"],
-  ["N39.0", "Urinary tract infection"],
-  ["J18.9", "Pneumonia, unspecified"],
-  ["S52.5", "Fracture of lower forearm"],
-  ["K29.7", "Gastritis"],
-  ["O80", "Single spontaneous delivery"],
-  ["M25.5", "Joint pain"],
-];
+const departments = PH_DEPARTMENTS;
+const physicianPool = PH_PHYSICIANS.map((name, i) => ({
+  name,
+  pan: `PAN-00${(214 + i * 63).toString()}`,
+  specialty: PH_DEPARTMENTS[i % PH_DEPARTMENTS.length]!,
+}));
+const diagnosisPool: [string, string][] = PH_TOP_DIAGNOSES.map((d) => [d.code, d.description]);
 const surnames = [
   "Reyes",
   "Dela Cruz",

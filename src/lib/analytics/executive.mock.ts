@@ -3,6 +3,16 @@
  * Shapes mirror FHIR R4 resources (Encounter, Condition, Claim,
  * PaymentReconciliation, Observation) flattened for chart consumption.
  */
+import {
+  KONSULTA_EKAS_RATE,
+  PH_DEPARTMENTS,
+  PH_DIAGNOSIS_CASE_RATES,
+  PH_PAYER_MIX,
+  PH_PHYSICIANS,
+  PH_TOP_DIAGNOSES,
+  TARGET_ADMISSIONS_PER_MONTH,
+  phPatientName,
+} from "./ph-constants";
 
 export interface AdmissionRow {
   encounterId: string;
@@ -160,48 +170,9 @@ const SCPWD = "#8B0000";
 const GSIS = "#0E6655";
 const WRITEOFF = "#999999";
 
-const physicians = [
-  "Dr. A. Villanueva",
-  "Dr. M. Sarmiento",
-  "Dr. J. Uy",
-  "Dr. L. Cabrera",
-  "Dr. R. Ocampo",
-  "Dr. K. Mendoza",
-];
-const departments = [
-  "Internal Medicine",
-  "Surgery",
-  "Obstetrics",
-  "Pediatrics",
-  "Orthopedics",
-  "Cardiology",
-];
-const diagnoses: [string, string][] = [
-  ["J44.9", "COPD, unspecified"],
-  ["I10", "Essential hypertension"],
-  ["E11.9", "Type 2 diabetes mellitus"],
-  ["A09", "Gastroenteritis and colitis"],
-  ["N39.0", "Urinary tract infection"],
-  ["J18.9", "Pneumonia, unspecified"],
-  ["S52.5", "Fracture of lower forearm"],
-  ["K29.7", "Gastritis"],
-  ["O80", "Single spontaneous delivery"],
-  ["M25.5", "Joint pain"],
-];
-const surnames = [
-  "Reyes",
-  "Dela Cruz",
-  "Garcia",
-  "Lim",
-  "Bautista",
-  "Tan",
-  "Santos",
-  "Pascual",
-  "Fernandez",
-  "Ramos",
-  "Abella",
-  "Yap",
-];
+const physicians = PH_PHYSICIANS;
+const departments = PH_DEPARTMENTS;
+const diagnoses: [string, string][] = PH_TOP_DIAGNOSES.map((d) => [d.code, d.description]);
 const dispositions: AdmissionRow["disposition"][] = [
   "Recovered",
   "Improved",
@@ -216,12 +187,13 @@ const dispositions: AdmissionRow["disposition"][] = [
 function buildAdmissions(count: number): AdmissionRow[] {
   return Array.from({ length: count }, (_, i) => {
     const dx = diagnoses[i % diagnoses.length]!;
+    const gender: AdmissionRow["gender"] = i % 2 === 0 ? "female" : "male";
     return {
       encounterId: `ENC-2026-${(4200 + i).toString()}`,
-      patient: `${surnames[i % surnames.length]}, ${["Maria", "Juan", "Ana", "Paolo", "Liza", "Carlo"][i % 6]} ${String.fromCharCode(65 + (i % 26))}.`,
+      patient: phPatientName(i, gender),
       patientId: `PT-2026-00${(300 + i * 7).toString()}`,
       age: 21 + ((i * 13) % 60),
-      gender: i % 2 === 0 ? "female" : "male",
+      gender,
       diagnosis: dx[1],
       icd10: dx[0],
       physician: physicians[i % physicians.length]!,
@@ -263,10 +235,10 @@ export function getExecutiveData(): ExecutiveData {
     period: "August 2026 (MTD)",
     priorPeriod: "July 2026",
     admissions: {
-      total: 1084,
+      total: TARGET_ADMISSIONS_PER_MONTH,
       deltaMonth: 8.4,
       deltaYear: 14.2,
-      rows: buildAdmissions(24),
+      rows: buildAdmissions(40),
     },
     alos: {
       value: 4.8,
@@ -278,6 +250,8 @@ export function getExecutiveData(): ExecutiveData {
         { name: "Obstetrics", value: 2.4 },
         { name: "Orthopedics", value: 6.4 },
         { name: "Cardiology", value: 5.5 },
+        { name: "Emergency Medicine", value: 2.1 },
+        { name: "Oncology", value: 7.2 },
       ],
       byChapter: [
         { name: "Respiratory (J00–J99)", value: 5.8 },
@@ -310,13 +284,14 @@ export function getExecutiveData(): ExecutiveData {
       total: 18_412_540.5,
       delta: 7.3,
       byDepartment: [
-        { name: "Internal Medicine", value: 4_820_000 },
-        { name: "Surgery", value: 4_120_000 },
-        { name: "Obstetrics", value: 2_640_000 },
-        { name: "Orthopedics", value: 2_310_000 },
-        { name: "Pediatrics", value: 1_780_000 },
-        { name: "Cardiology", value: 1_540_000 },
-        { name: "Others", value: 1_202_540 },
+        { name: "Internal Medicine", value: 4_120_000 },
+        { name: "Surgery", value: 3_520_000 },
+        { name: "Obstetrics", value: 2_240_000 },
+        { name: "Orthopedics", value: 1_980_000 },
+        { name: "Pediatrics", value: 1_520_000 },
+        { name: "Cardiology", value: 1_340_000 },
+        { name: "Emergency Medicine", value: 1_980_000 },
+        { name: "Oncology", value: 1_712_540.5 },
       ],
       byServiceType: [
         { name: "Room & Board", value: 4_120_000 },
@@ -327,33 +302,82 @@ export function getExecutiveData(): ExecutiveData {
         { name: "OR / Procedures", value: 2_402_540 },
       ],
       byPayer: [
-        { payer: "PhilHealth", amount: 7_120_000, color: PH },
-        { payer: "HMO", amount: 3_480_000, color: HMO },
-        { payer: "Private Pay", amount: 4_960_000, color: PRIVATE },
-        { payer: "SC/PWD Discount", amount: 1_640_000, color: SCPWD },
-        { payer: "GSIS/Other", amount: 810_000, color: GSIS },
-        { payer: "Write-offs", amount: 402_540, color: WRITEOFF },
+        {
+          payer: "PhilHealth",
+          amount: Math.round(18_412_540.5 * PH_PAYER_MIX.philhealth),
+          color: PH,
+        },
+        { payer: "HMO", amount: Math.round(18_412_540.5 * PH_PAYER_MIX.hmo), color: HMO },
+        {
+          payer: "Private Pay",
+          amount: Math.round(18_412_540.5 * PH_PAYER_MIX.privatePay),
+          color: PRIVATE,
+        },
+        {
+          payer: "SC/PWD Discount",
+          amount: Math.round(18_412_540.5 * PH_PAYER_MIX.scpwd),
+          color: SCPWD,
+        },
+        { payer: "GSIS/Other", amount: Math.round(18_412_540.5 * PH_PAYER_MIX.gsis), color: GSIS },
+        {
+          payer: "Write-offs",
+          amount: Math.round(18_412_540.5 * PH_PAYER_MIX.writeoff),
+          color: WRITEOFF,
+        },
       ],
-      payerTrend: months.slice(6).map((month, i) => ({
-        month,
-        philhealth: 6_200_000 + i * 180_000,
-        hmo: 3_100_000 + i * 70_000,
-        privatePay: 4_600_000 + i * 60_000,
-        scpwd: 1_400_000 + i * 45_000,
-        gsis: 720_000 + i * 18_000,
-        writeoff: 360_000 + i * 8_000,
-      })),
+      payerTrend: months.slice(6).map((month, i) => {
+        const base = 16_500_000 + i * 380_000;
+        return {
+          month,
+          philhealth: Math.round(base * PH_PAYER_MIX.philhealth),
+          hmo: Math.round(base * PH_PAYER_MIX.hmo),
+          privatePay: Math.round(base * PH_PAYER_MIX.privatePay),
+          scpwd: Math.round(base * PH_PAYER_MIX.scpwd),
+          gsis: Math.round(base * PH_PAYER_MIX.gsis),
+          writeoff: Math.round(base * PH_PAYER_MIX.writeoff),
+        };
+      }),
     },
     remittance: {
       received: 5_840_000,
       expected: 6_400_000,
       delta: -3.1,
       batches: [
-        { batch: "BATCH-2026-08-01", caseType: "Ordinary", claims: 184, amount: 2_140_000, status: "Received" },
-        { batch: "BATCH-2026-08-02", caseType: "Catastrophic", claims: 22, amount: 1_460_000, status: "Received" },
-        { batch: "BATCH-2026-08-03", caseType: "Day Surgery", claims: 61, amount: 840_000, status: "Pending" },
-        { batch: "BATCH-2026-08-04", caseType: "Z-Benefit", claims: 6, amount: 980_000, status: "Pending" },
-        { batch: "BATCH-2026-08-05", caseType: "Konsulta", claims: 240, amount: 420_000, status: "Received" },
+        {
+          batch: "BATCH-2026-08-01",
+          caseType: "Ordinary",
+          claims: 184,
+          amount: 2_140_000,
+          status: "Received",
+        },
+        {
+          batch: "BATCH-2026-08-02",
+          caseType: "Catastrophic",
+          claims: 22,
+          amount: 1_460_000,
+          status: "Received",
+        },
+        {
+          batch: "BATCH-2026-08-03",
+          caseType: "Day Surgery",
+          claims: 61,
+          amount: 840_000,
+          status: "Pending",
+        },
+        {
+          batch: "BATCH-2026-08-04",
+          caseType: "Z-Benefit",
+          claims: 6,
+          amount: 980_000,
+          status: "Pending",
+        },
+        {
+          batch: "BATCH-2026-08-05",
+          caseType: "Konsulta",
+          claims: 240,
+          amount: 240 * KONSULTA_EKAS_RATE,
+          status: "Received",
+        },
       ],
     },
     approvalRate: {
@@ -365,6 +389,8 @@ export function getExecutiveData(): ExecutiveData {
         { name: "Obstetrics", value: 95 },
         { name: "Pediatrics", value: 92 },
         { name: "Orthopedics", value: 84 },
+        { name: "Emergency Medicine", value: 90 },
+        { name: "Oncology", value: 87 },
       ],
     },
     mortality: {
@@ -376,13 +402,15 @@ export function getExecutiveData(): ExecutiveData {
         { name: "Surgery", value: 1.2 },
         { name: "Cardiology", value: 1.9 },
         { name: "Pediatrics", value: 0.4 },
+        { name: "Emergency Medicine", value: 3.1 },
+        { name: "Oncology", value: 2.6 },
       ],
       byDiagnosis: [
         { name: "Sepsis (A41.9)", value: 12 },
         { name: "Stroke (I63.9)", value: 8 },
         { name: "AMI (I21.9)", value: 6 },
         { name: "Pneumonia (J18.9)", value: 5 },
-        { name: "COPD (J44.9)", value: 3 },
+        { name: "Breast cancer (C50.9)", value: 3 },
       ],
     },
     satisfaction: {
@@ -393,7 +421,8 @@ export function getExecutiveData(): ExecutiveData {
         { name: "Surgery", value: 74 },
         { name: "Obstetrics", value: 84 },
         { name: "Pediatrics", value: 81 },
-        { name: "Emergency", value: 66 },
+        { name: "Emergency Medicine", value: 66 },
+        { name: "Oncology", value: 79 },
         { name: "Laboratory", value: 77 },
       ],
     },
@@ -401,8 +430,8 @@ export function getExecutiveData(): ExecutiveData {
     topDiagnoses: diagnoses.map(([code, description], i) => ({
       code,
       description,
-      count: 94 - i * 6,
-      caseRate: 12_000 + i * 1_400,
+      count: Math.max(8, 94 - i * 7),
+      caseRate: PH_DIAGNOSIS_CASE_RATES[code] ?? 10_000,
       avgLos: 3 + ((i * 7) % 5) * 0.6,
       trend: Array.from({ length: 6 }, (_, k) => 40 + ((i * 5 + k * 9) % 55)),
     })),
@@ -415,11 +444,41 @@ export function getExecutiveData(): ExecutiveData {
         { status: "Returned-to-Hospital", count: 34, value: 410_000, color: "#D35400" },
       ],
       denialReasons: [
-        { code: "DR-101", reason: "Incomplete supporting documents", count: 18, valueAtRisk: 240_000, action: "Attach CSF/CF4 and refile via RTH" },
-        { code: "DR-204", reason: "Case rate not applicable to diagnosis", count: 12, valueAtRisk: 186_000, action: "Recode ICD-10 and appeal via CAB" },
-        { code: "DR-118", reason: "Late filing beyond 60 days", count: 9, valueAtRisk: 132_000, action: "Escalate to Claims Officer for waiver" },
-        { code: "DR-330", reason: "Member eligibility not established", count: 11, valueAtRisk: 98_000, action: "Re-verify PhilHealth membership" },
-        { code: "DR-402", reason: "Duplicate claim submission", count: 8, valueAtRisk: 64_000, action: "Void duplicate and retain original" },
+        {
+          code: "DR-101",
+          reason: "Incomplete supporting documents",
+          count: 18,
+          valueAtRisk: 240_000,
+          action: "Attach CSF/CF4 and refile via RTH",
+        },
+        {
+          code: "DR-204",
+          reason: "Case rate not applicable to diagnosis",
+          count: 12,
+          valueAtRisk: 186_000,
+          action: "Recode ICD-10 and appeal via CAB",
+        },
+        {
+          code: "DR-118",
+          reason: "Late filing beyond 60 days",
+          count: 9,
+          valueAtRisk: 132_000,
+          action: "Escalate to Claims Officer for waiver",
+        },
+        {
+          code: "DR-330",
+          reason: "Member eligibility not established",
+          count: 11,
+          valueAtRisk: 98_000,
+          action: "Re-verify PhilHealth membership",
+        },
+        {
+          code: "DR-402",
+          reason: "Duplicate claim submission",
+          count: 8,
+          valueAtRisk: 64_000,
+          action: "Void duplicate and retain original",
+        },
       ],
     },
     lab: {
@@ -439,12 +498,60 @@ export function getExecutiveData(): ExecutiveData {
       })),
     },
     alerts: [
-      { id: "AL-1", title: "Claims near submission deadline", detail: "Oldest claim filed 54 days ago", count: 23, severity: "danger", actionLabel: "Open claims worklist", module: "Claims" },
-      { id: "AL-2", title: "Critical lab results unacknowledged", detail: "Longest pending: 3h 20m", count: 7, severity: "danger", actionLabel: "Open lab results", module: "Laboratory" },
-      { id: "AL-3", title: "Discharge clearance pending", detail: "Blocking bed turnover in Medicine Ward", count: 14, severity: "warning", actionLabel: "Open discharge queue", module: "Inpatient" },
-      { id: "AL-4", title: "CSF signatures not collected", detail: "Required before PhilHealth filing", count: 31, severity: "warning", actionLabel: "Open encounters", module: "Billing" },
-      { id: "AL-5", title: "ICU occupancy above 90%", detail: "ICU at 96%, Medicine Ward at 91%", count: 2, severity: "danger", actionLabel: "Open bed management", module: "Census" },
-      { id: "AL-6", title: "Practitioner PAN expiring", detail: "Within the next 30 days", count: 5, severity: "warning", actionLabel: "Open practitioner registry", module: "Settings" },
+      {
+        id: "AL-1",
+        title: "Claims near submission deadline",
+        detail: "Oldest claim filed 54 days ago",
+        count: 23,
+        severity: "danger",
+        actionLabel: "Open claims worklist",
+        module: "Claims",
+      },
+      {
+        id: "AL-2",
+        title: "Critical lab results unacknowledged",
+        detail: "Longest pending: 3h 20m",
+        count: 7,
+        severity: "danger",
+        actionLabel: "Open lab results",
+        module: "Laboratory",
+      },
+      {
+        id: "AL-3",
+        title: "Discharge clearance pending",
+        detail: "Blocking bed turnover in Medicine Ward",
+        count: 14,
+        severity: "warning",
+        actionLabel: "Open discharge queue",
+        module: "Inpatient",
+      },
+      {
+        id: "AL-4",
+        title: "CSF signatures not collected",
+        detail: "Required before PhilHealth filing",
+        count: 31,
+        severity: "warning",
+        actionLabel: "Open encounters",
+        module: "Billing",
+      },
+      {
+        id: "AL-5",
+        title: "ICU occupancy above 90%",
+        detail: "ICU at 96%, Medicine Ward at 91%",
+        count: 2,
+        severity: "danger",
+        actionLabel: "Open bed management",
+        module: "Census",
+      },
+      {
+        id: "AL-6",
+        title: "Practitioner PAN expiring",
+        detail: "Within the next 30 days",
+        count: 5,
+        severity: "warning",
+        actionLabel: "Open practitioner registry",
+        module: "Settings",
+      },
     ],
   };
 }

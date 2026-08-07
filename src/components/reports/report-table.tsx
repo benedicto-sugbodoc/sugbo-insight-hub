@@ -1,6 +1,7 @@
 import * as React from "react";
-import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronsUpDown } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -17,6 +18,9 @@ export interface SortState {
   dir: "asc" | "desc";
 }
 
+/** Rows beyond this count get paginated (Phase 8: "paginate at 50 rows"). */
+const DEFAULT_PAGE_SIZE = 50;
+
 export function ReportTable<T>({
   columns,
   rows,
@@ -25,6 +29,7 @@ export function ReportTable<T>({
   onRowClick,
   rowAlert,
   summaryRow,
+  pageSize = DEFAULT_PAGE_SIZE,
 }: {
   columns: ReportColumn<T>[];
   rows: T[];
@@ -33,7 +38,21 @@ export function ReportTable<T>({
   onRowClick: (row: T) => void;
   rowAlert?: (row: T) => boolean;
   summaryRow?: Record<string, React.ReactNode>;
+  pageSize?: number;
 }) {
+  const [page, setPage] = React.useState(0);
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const clampedPage = Math.min(page, pageCount - 1);
+
+  React.useEffect(() => {
+    setPage(0);
+  }, [rows.length, pageSize]);
+
+  const pagedRows =
+    rows.length > pageSize
+      ? rows.slice(clampedPage * pageSize, clampedPage * pageSize + pageSize)
+      : rows;
+
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
       <Table>
@@ -79,11 +98,11 @@ export function ReportTable<T>({
               </TableCell>
             </TableRow>
           ) : (
-            rows.map((row, i) => {
+            pagedRows.map((row, i) => {
               const alert = rowAlert?.(row);
               return (
                 <TableRow
-                  key={i}
+                  key={clampedPage * pageSize + i}
                   onClick={() => onRowClick(row)}
                   className={cn(
                     "cursor-pointer text-sm hover:bg-muted/60",
@@ -129,6 +148,44 @@ export function ReportTable<T>({
           </tfoot>
         ) : null}
       </Table>
+      {rows.length > pageSize ? (
+        <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2 text-xs text-text-muted">
+          <span>
+            Showing {clampedPage * pageSize + 1}
+            {"–"}
+            {Math.min(rows.length, clampedPage * pageSize + pageSize)} of {rows.length}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 px-2"
+              disabled={clampedPage === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              aria-label="Previous page"
+            >
+              <ArrowLeft className="size-3" />
+              Prev
+            </Button>
+            <span className="tabular-nums">
+              Page {clampedPage + 1} of {pageCount}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 px-2"
+              disabled={clampedPage >= pageCount - 1}
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              aria-label="Next page"
+            >
+              Next
+              <ArrowRight className="size-3" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

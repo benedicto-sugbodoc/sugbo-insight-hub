@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { RoleGate, RoleSwitcher, useMockRole } from "@/components/analytics/interactive";
 
 import { presetRange } from "./date-range";
 import { downloadCsv, downloadExcel, printCurrentView, slugFilename } from "./export-utils";
@@ -52,6 +53,8 @@ function useLocalStorage<T>(key: string, initial: T): [T, (v: T) => void] {
 
 export function ReportShell<T>({ config }: { config: ReportConfig<T> }) {
   const rows = React.useMemo(() => config.getRows(), [config]);
+  const [role, setRole] = useMockRole();
+  const restricted = Boolean(config.roleNote) && role !== "Admin";
 
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
   const [dateRange, setDateRange] = React.useState<DateRangeValue>(() => presetRange("month"));
@@ -248,6 +251,11 @@ export function ReportShell<T>({ config }: { config: ReportConfig<T> }) {
                 {config.roleNote}
               </Badge>
             ) : null}
+            {config.roleNote ? (
+              <span className="print:hidden">
+                <RoleSwitcher role={role} onChange={setRole} />
+              </span>
+            ) : null}
           </div>
           <p className="text-xs text-text-muted">{config.purpose}</p>
           {config.formatNote ? (
@@ -261,137 +269,146 @@ export function ReportShell<T>({ config }: { config: ReportConfig<T> }) {
           ) : null}
         </header>
 
-        {/* Toolbar */}
-        <div className="flex flex-wrap items-center gap-2 print:hidden">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-text-muted" />
-            <Input
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              placeholder="Search within results…"
-              className="h-8 w-56 pl-8 text-xs"
-            />
-          </div>
+        {restricted ? (
+          <RoleGate
+            role={role}
+            label={`Restricted: ${config.roleNote}. Switch to Admin above to view this report.`}
+          />
+        ) : (
+          <>
+            {/* Toolbar */}
+            <div className="flex flex-wrap items-center gap-2 print:hidden">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-text-muted" />
+                <Input
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  placeholder="Search within results…"
+                  className="h-8 w-56 pl-8 text-xs"
+                />
+              </div>
 
-          <div className="ml-auto flex flex-wrap items-center gap-1.5">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1.5 text-xs"
-              onClick={() =>
-                downloadCsv(slugFilename(config.title, "csv"), exportColumns, filtered)
-              }
-            >
-              <Download className="size-3.5" />
-              CSV
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1.5 text-xs"
-              onClick={() =>
-                downloadExcel(
-                  slugFilename(config.title, "xls"),
-                  config.title,
-                  exportColumns,
-                  filtered,
-                )
-              }
-            >
-              <FileSpreadsheet className="size-3.5" />
-              Excel
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1.5 text-xs"
-              onClick={printCurrentView}
-            >
-              <FileText className="size-3.5" />
-              PDF
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1.5 text-xs"
-              onClick={printCurrentView}
-            >
-              <Printer className="size-3.5" />
-              Print
-            </Button>
-
-            <Popover open={scheduleOpen} onOpenChange={setScheduleOpen}>
-              <PopoverTrigger asChild>
-                <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
-                  <Clock className="size-3.5" />
-                  Schedule
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-72 space-y-3">
-                <p className="text-xs font-medium text-text-primary">
-                  Send this report automatically
-                </p>
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-text-secondary">Frequency</Label>
-                  <Select value={scheduleCadence} onValueChange={setScheduleCadence}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="weekly" className="text-xs">
-                        Weekly
-                      </SelectItem>
-                      <SelectItem value="monthly" className="text-xs">
-                        Monthly
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-[11px] text-text-secondary">Send to</Label>
-                  <Input
-                    value={scheduleEmail}
-                    onChange={(e) => setScheduleEmail(e.target.value)}
-                    placeholder="name@sugbodoc.ph"
-                    type="email"
-                    className="h-8 text-xs"
-                  />
-                </div>
+              <div className="ml-auto flex flex-wrap items-center gap-1.5">
                 <Button
                   size="sm"
-                  className={cn(
-                    "w-full gap-1.5 bg-brand text-xs text-brand-foreground hover:bg-brand/90",
-                    scheduleSaved && "bg-success hover:bg-success",
-                  )}
-                  disabled={!scheduleEmail.trim()}
-                  onClick={() => setScheduleSaved(true)}
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={() =>
+                    downloadCsv(slugFilename(config.title, "csv"), exportColumns, filtered)
+                  }
                 >
-                  {scheduleSaved ? <Check className="size-3.5" /> : null}
-                  {scheduleSaved
-                    ? "Schedule saved"
-                    : `Send ${scheduleCadence} to ${scheduleEmail || "…"}`}
+                  <Download className="size-3.5" />
+                  CSV
                 </Button>
-                <p className="text-[10px] text-text-muted">
-                  UI scaffold — connect an email/reporting service to activate delivery.
-                </p>
-              </PopoverContent>
-            </Popover>
-          </div>
-        </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={() =>
+                    downloadExcel(
+                      slugFilename(config.title, "xls"),
+                      config.title,
+                      exportColumns,
+                      filtered,
+                    )
+                  }
+                >
+                  <FileSpreadsheet className="size-3.5" />
+                  Excel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={printCurrentView}
+                >
+                  <FileText className="size-3.5" />
+                  PDF
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={printCurrentView}
+                >
+                  <Printer className="size-3.5" />
+                  Print
+                </Button>
 
-        <p className="text-xs text-text-muted print:hidden">
-          Showing {filtered.length} of {rows.length} results
-        </p>
+                <Popover open={scheduleOpen} onOpenChange={setScheduleOpen}>
+                  <PopoverTrigger asChild>
+                    <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
+                      <Clock className="size-3.5" />
+                      Schedule
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-72 space-y-3">
+                    <p className="text-xs font-medium text-text-primary">
+                      Send this report automatically
+                    </p>
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] text-text-secondary">Frequency</Label>
+                      <Select value={scheduleCadence} onValueChange={setScheduleCadence}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="weekly" className="text-xs">
+                            Weekly
+                          </SelectItem>
+                          <SelectItem value="monthly" className="text-xs">
+                            Monthly
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] text-text-secondary">Send to</Label>
+                      <Input
+                        value={scheduleEmail}
+                        onChange={(e) => setScheduleEmail(e.target.value)}
+                        placeholder="name@sugbodoc.ph"
+                        type="email"
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      className={cn(
+                        "w-full gap-1.5 bg-brand text-xs text-brand-foreground hover:bg-brand/90",
+                        scheduleSaved && "bg-success hover:bg-success",
+                      )}
+                      disabled={!scheduleEmail.trim()}
+                      onClick={() => setScheduleSaved(true)}
+                    >
+                      {scheduleSaved ? <Check className="size-3.5" /> : null}
+                      {scheduleSaved
+                        ? "Schedule saved"
+                        : `Send ${scheduleCadence} to ${scheduleEmail || "…"}`}
+                    </Button>
+                    <p className="text-[10px] text-text-muted">
+                      UI scaffold — connect an email/reporting service to activate delivery.
+                    </p>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
 
-        <ReportTable
-          columns={config.columns}
-          rows={filtered}
-          sort={sort}
-          onSortChange={handleSortChange}
-          onRowClick={handleRowClick}
-          {...(config.rowAlert ? { rowAlert: config.rowAlert } : {})}
-          {...(summaryRow ? { summaryRow } : {})}
-        />
+            <p className="text-xs text-text-muted print:hidden">
+              Showing {filtered.length} of {rows.length} results
+            </p>
+
+            <ReportTable
+              columns={config.columns}
+              rows={filtered}
+              sort={sort}
+              onSortChange={handleSortChange}
+              onRowClick={handleRowClick}
+              {...(config.rowAlert ? { rowAlert: config.rowAlert } : {})}
+              {...(summaryRow ? { summaryRow } : {})}
+            />
+          </>
+        )}
       </div>
 
       <RecordDrawer

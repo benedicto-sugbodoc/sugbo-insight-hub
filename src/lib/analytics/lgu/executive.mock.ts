@@ -6,12 +6,14 @@
  */
 import {
   BARANGAYS,
+  BHC_LIST,
   months12,
   epiWeeks,
   seeded,
   seededRange,
   TOTAL_POPULATION,
 } from "./shared.mock";
+import { KONSULTA_EKAS_RATE } from "../ph-constants";
 
 export interface BarangayMetricSet {
   id: string;
@@ -346,11 +348,16 @@ export function getLguExecutiveData(): LguExecutiveData {
         { day: "Sat", visits: 1580 },
         { day: "Sun", visits: 210 },
       ],
-      byBhc: barangays.map((b) => ({ name: b.bhc, value: b.visitsByType[0]?.count ?? 0 })),
+      byBhc: BHC_LIST.map((bhc) => ({
+        name: bhc,
+        value: barangays
+          .filter((b) => b.bhc === bhc)
+          .reduce((s, b) => s + (b.visitsByType[0]?.count ?? 0), 0),
+      })),
     },
     ekas: {
       submitted: 14620,
-      value: 8_240_000,
+      value: 14620 * KONSULTA_EKAS_RATE,
       delta: 4.2,
       byStatus: [
         { status: "Submitted", count: 5210, color: "#8A8F98" },
@@ -358,9 +365,9 @@ export function getLguExecutiveData(): LguExecutiveData {
         { status: "Denied", count: 620, color: "#C0392B" },
         { status: "Pending CSF", count: 310, color: "#E67E22" },
       ],
-      byBhc: barangays.map((b, i) => ({
-        name: b.bhc,
-        value: Math.round(seededRange(i, 480, 1600, 40)),
+      byBhc: BHC_LIST.map((bhc, i) => ({
+        name: bhc,
+        value: Math.round(seededRange(i, 480, 1600, 40) * 3),
       })),
       daysToCutoff: 4,
       unsettledCount: 186,

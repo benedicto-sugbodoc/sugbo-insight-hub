@@ -3,6 +3,12 @@
  * Shapes mirror FHIR R4 resources (ChargeItem, Claim, PaymentReconciliation,
  * Account, Coverage) flattened for chart consumption.
  */
+import {
+  PH_DEPARTMENTS,
+  PH_MEMBERSHIP_DISTRIBUTION,
+  PH_PAYER_MIX,
+  phPatientName,
+} from "./ph-constants";
 
 export const REV = {
   brand: "#4454C3",
@@ -132,9 +138,6 @@ export interface RevenueData {
 
 const months = ["Mar 26", "Apr 26", "May 26", "Jun 26", "Jul 26", "Aug 26"];
 
-const surnames = ["Reyes", "Dela Cruz", "Garcia", "Lim", "Bautista", "Tan", "Santos", "Pascual", "Fernandez", "Ramos"];
-const firstNames = ["Maria", "Juan", "Ana", "Paolo", "Liza", "Carlo", "Grace", "Noel"];
-
 function buildPatientRows(count: number, payers: string[]): ARPatientRow[] {
   const actions = [
     "Statement sent",
@@ -145,7 +148,7 @@ function buildPatientRows(count: number, payers: string[]): ARPatientRow[] {
     "Awaiting HMO LOA extension",
   ];
   return Array.from({ length: count }, (_, i) => ({
-    patient: `${surnames[i % surnames.length]}, ${firstNames[i % firstNames.length]} ${String.fromCharCode(65 + (i % 26))}.`,
+    patient: phPatientName(i, i % 2 === 0 ? "female" : "male"),
     patientId: `PT-2026-01${(200 + i * 3).toString()}`,
     payer: payers[i % payers.length]!,
     daysOutstanding: 91 + ((i * 11) % 95),
@@ -157,7 +160,7 @@ function buildPatientRows(count: number, payers: string[]): ARPatientRow[] {
 function buildEncounters(count: number, stage: string, base: number): FunnelStage["encounters"] {
   return Array.from({ length: count }, (_, i) => ({
     encounterId: `ENC-2026-${(5100 + base + i).toString()}`,
-    patient: `${surnames[i % surnames.length]}, ${firstNames[(i + 2) % firstNames.length]} ${String.fromCharCode(66 + (i % 24))}.`,
+    patient: phPatientName(i + base, i % 2 === 0 ? "male" : "female"),
     amount: 6_200 + ((i * 2100) % 48_000),
     daysStuck: 1 + ((i * 3 + base) % 14),
   }));
@@ -172,7 +175,13 @@ export function getRevenueData(): RevenueData {
   const cr2 = 1_980_000;
   const patientCollections = grossCharges - scpwdDiscount - gsisAssist - hmoAdj - cr1 - cr2;
 
-  const waterfallRaw: { key: string; label: string; value: number; kind: WaterfallStep["kind"]; detail: { item: string; amount: number }[] }[] = [
+  const waterfallRaw: {
+    key: string;
+    label: string;
+    value: number;
+    kind: WaterfallStep["kind"];
+    detail: { item: string; amount: number }[];
+  }[] = [
     {
       key: "gross",
       label: "Gross Charges",
@@ -253,7 +262,14 @@ export function getRevenueData(): RevenueData {
   const waterfall: WaterfallStep[] = waterfallRaw.map((s) => {
     if (s.kind === "start") {
       running = s.value;
-      return { key: s.key, label: s.label, base: 0, value: s.value, kind: s.kind, detail: s.detail };
+      return {
+        key: s.key,
+        label: s.label,
+        base: 0,
+        value: s.value,
+        kind: s.kind,
+        detail: s.detail,
+      };
     }
     if (s.kind === "deduction") {
       const newRunning = running + s.value;
@@ -271,17 +287,25 @@ export function getRevenueData(): RevenueData {
     return { key: s.key, label: s.label, base: 0, value: s.value, kind: s.kind, detail: s.detail };
   });
 
-  const departments = [
-    "Internal Medicine",
-    "Surgery",
-    "Obstetrics",
-    "Orthopedics",
-    "Pediatrics",
-    "Cardiology",
-    "Emergency",
+  const departments = PH_DEPARTMENTS;
+  const procPool = [
+    "Hemodialysis session",
+    "Cesarean section",
+    "Appendectomy",
+    "Cataract surgery",
+    "ORIF fixation",
+    "Chest X-ray series",
+    "2D Echo",
+    "CBC panel",
   ];
-  const procPool = ["Hemodialysis session", "Cesarean section", "Appendectomy", "Cataract surgery", "ORIF fixation", "Chest X-ray series", "2D Echo", "CBC panel"];
-  const dxPool = ["Type 2 diabetes (E11.9)", "Essential hypertension (I10)", "Pneumonia (J18.9)", "Fracture forearm (S52.5)", "UTI (N39.0)", "Single delivery (O80)"];
+  const dxPool = [
+    "Type 2 diabetes (E11.9)",
+    "Essential hypertension (I10)",
+    "Pneumonia (J18.9)",
+    "Low back pain (M54.5)",
+    "UTI (N39.0)",
+    "Single delivery (O80)",
+  ];
 
   const departmentRevenue: DeptRevenueRow[] = departments
     .map((department, i) => {
@@ -342,24 +366,29 @@ export function getRevenueData(): RevenueData {
 
   const funnel: FunnelStage[] = [
     { stage: "Discharged", count: discharged, encounters: buildEncounters(0, "Discharged", 0) },
-    { stage: "Bill Generated", count: billed, encounters: buildEncounters(14, "Bill Generated", 100) },
-    { stage: "Claim Submitted", count: submitted, encounters: buildEncounters(10, "Claim Submitted", 200) },
+    {
+      stage: "Bill Generated",
+      count: billed,
+      encounters: buildEncounters(14, "Bill Generated", 100),
+    },
+    {
+      stage: "Claim Submitted",
+      count: submitted,
+      encounters: buildEncounters(10, "Claim Submitted", 200),
+    },
     { stage: "Paid", count: paid, encounters: buildEncounters(6, "Paid", 300) },
   ];
 
-  const philhealthCoverage: CoverageSlice[] = [
-    { category: "Employed", count: 3_420, color: "#1A5CA8" },
-    { category: "Self-Earning", count: 1_180, color: "#4454C3" },
-    { category: "Indigent", count: 2_640, color: "#1A7A3C" },
-    { category: "Sponsored", count: 1_960, color: "#E67E22" },
-    { category: "Lifetime", count: 840, color: "#B7950B" },
-    { category: "OFW", count: 620, color: "#6B4C9A" },
-    { category: "Non-member", count: 340, color: "#999999" },
-  ];
+  const totalPhilHealthMembers = 11_000;
+  const philhealthCoverage: CoverageSlice[] = PH_MEMBERSHIP_DISTRIBUTION.map((m) => ({
+    category: m.category,
+    count: Math.round(totalPhilHealthMembers * m.share),
+    color: m.color,
+  }));
 
   const scPwdTrend: ScPwdPoint[] = months.map((month, i) => ({
     month,
-    patients: 210 + i * 14 + (i % 2 === 0 ? 8 : -4),
+    patients: Math.round(300 * 0.15) + i * 3 + (i % 2 === 0 ? 2 : -1),
     discountAmount: 1_240_000 + i * 68_000,
   }));
 
@@ -376,22 +405,45 @@ export function getRevenueData(): RevenueData {
     },
     waterfall,
     payerMix: [
-      { payer: "PhilHealth", amount: 8_720_000, color: REV.philhealth },
-      { payer: "HMO", amount: 3_960_000, color: REV.hmo },
-      { payer: "Private Pay", amount: 5_240_000, color: REV.privatePay },
-      { payer: "SC/PWD Discount", amount: 1_640_000, color: REV.scpwd },
-      { payer: "GSIS/Other", amount: 980_000, color: REV.gsis },
-      { payer: "Write-offs", amount: 402_540, color: REV.writeoff },
+      {
+        payer: "PhilHealth",
+        amount: Math.round(grossCharges * PH_PAYER_MIX.philhealth),
+        color: REV.philhealth,
+      },
+      { payer: "HMO", amount: Math.round(grossCharges * PH_PAYER_MIX.hmo), color: REV.hmo },
+      {
+        payer: "Private Pay",
+        amount: Math.round(grossCharges * PH_PAYER_MIX.privatePay),
+        color: REV.privatePay,
+      },
+      {
+        payer: "SC/PWD Discount",
+        amount: Math.round(grossCharges * PH_PAYER_MIX.scpwd),
+        color: REV.scpwd,
+      },
+      {
+        payer: "GSIS/Other",
+        amount: Math.round(grossCharges * PH_PAYER_MIX.gsis),
+        color: REV.gsis,
+      },
+      {
+        payer: "Write-offs",
+        amount: Math.round(grossCharges * PH_PAYER_MIX.writeoff),
+        color: REV.writeoff,
+      },
     ],
-    payerTrend: months.map((month, i) => ({
-      month,
-      philhealth: 6_800_000 + i * 240_000,
-      hmo: 3_100_000 + i * 90_000,
-      privatePay: 4_600_000 + i * 70_000,
-      scpwd: 1_400_000 + i * 45_000,
-      gsis: 720_000 + i * 18_000,
-      writeoff: 360_000 + i * 8_000,
-    })),
+    payerTrend: months.map((month, i) => {
+      const base = 20_500_000 + i * 420_000;
+      return {
+        month,
+        philhealth: Math.round(base * PH_PAYER_MIX.philhealth),
+        hmo: Math.round(base * PH_PAYER_MIX.hmo),
+        privatePay: Math.round(base * PH_PAYER_MIX.privatePay),
+        scpwd: Math.round(base * PH_PAYER_MIX.scpwd),
+        gsis: Math.round(base * PH_PAYER_MIX.gsis),
+        writeoff: Math.round(base * PH_PAYER_MIX.writeoff),
+      };
+    }),
     departmentRevenue,
     arAging,
     arOver90: buildPatientRows(18, payers),
