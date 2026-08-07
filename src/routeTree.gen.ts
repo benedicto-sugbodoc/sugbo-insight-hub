@@ -12,7 +12,11 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AnalyticsIndexRouteImport } from './routes/analytics.index'
+import { Route as AnalyticsClaimsRouteImport } from './routes/analytics.claims'
+import { Route as AnalyticsClinicalRouteImport } from './routes/analytics.clinical'
 import { Route as AnalyticsExecutiveRouteImport } from './routes/analytics.executive'
+import { Route as AnalyticsQualityRouteImport } from './routes/analytics.quality'
+import { Route as AnalyticsRevenueRouteImport } from './routes/analytics.revenue'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -29,36 +33,92 @@ const AnalyticsIndexRoute = AnalyticsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AnalyticsRoute,
 } as any)
+const AnalyticsClaimsRoute = AnalyticsClaimsRouteImport.update({
+  id: '/claims',
+  path: '/claims',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
+const AnalyticsClinicalRoute = AnalyticsClinicalRouteImport.update({
+  id: '/clinical',
+  path: '/clinical',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
 const AnalyticsExecutiveRoute = AnalyticsExecutiveRouteImport.update({
   id: '/executive',
   path: '/executive',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
+const AnalyticsQualityRoute = AnalyticsQualityRouteImport.update({
+  id: '/quality',
+  path: '/quality',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
+const AnalyticsRevenueRoute = AnalyticsRevenueRouteImport.update({
+  id: '/revenue',
+  path: '/revenue',
   getParentRoute: () => AnalyticsRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRouteWithChildren
+  '/analytics/claims': typeof AnalyticsClaimsRoute
+  '/analytics/clinical': typeof AnalyticsClinicalRoute
   '/analytics/executive': typeof AnalyticsExecutiveRoute
+  '/analytics/quality': typeof AnalyticsQualityRoute
+  '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/analytics/': typeof AnalyticsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/analytics/claims': typeof AnalyticsClaimsRoute
+  '/analytics/clinical': typeof AnalyticsClinicalRoute
   '/analytics/executive': typeof AnalyticsExecutiveRoute
+  '/analytics/quality': typeof AnalyticsQualityRoute
+  '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/analytics': typeof AnalyticsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRouteWithChildren
+  '/analytics/claims': typeof AnalyticsClaimsRoute
+  '/analytics/clinical': typeof AnalyticsClinicalRoute
   '/analytics/executive': typeof AnalyticsExecutiveRoute
+  '/analytics/quality': typeof AnalyticsQualityRoute
+  '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/analytics/': typeof AnalyticsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/analytics' | '/analytics/executive' | '/analytics/'
+  fullPaths:
+    | '/'
+    | '/analytics'
+    | '/analytics/claims'
+    | '/analytics/clinical'
+    | '/analytics/executive'
+    | '/analytics/quality'
+    | '/analytics/revenue'
+    | '/analytics/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/analytics/executive' | '/analytics'
-  id: '__root__' | '/' | '/analytics' | '/analytics/executive' | '/analytics/'
+  to:
+    | '/'
+    | '/analytics/claims'
+    | '/analytics/clinical'
+    | '/analytics/executive'
+    | '/analytics/quality'
+    | '/analytics/revenue'
+    | '/analytics'
+  id:
+    | '__root__'
+    | '/'
+    | '/analytics'
+    | '/analytics/claims'
+    | '/analytics/clinical'
+    | '/analytics/executive'
+    | '/analytics/quality'
+    | '/analytics/revenue'
+    | '/analytics/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -89,6 +149,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnalyticsIndexRouteImport
       parentRoute: typeof AnalyticsRoute
     }
+    '/analytics/claims': {
+      id: '/analytics/claims'
+      path: '/claims'
+      fullPath: '/analytics/claims'
+      preLoaderRoute: typeof AnalyticsClaimsRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
+    '/analytics/clinical': {
+      id: '/analytics/clinical'
+      path: '/clinical'
+      fullPath: '/analytics/clinical'
+      preLoaderRoute: typeof AnalyticsClinicalRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
     '/analytics/executive': {
       id: '/analytics/executive'
       path: '/executive'
@@ -96,16 +170,38 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnalyticsExecutiveRouteImport
       parentRoute: typeof AnalyticsRoute
     }
+    '/analytics/quality': {
+      id: '/analytics/quality'
+      path: '/quality'
+      fullPath: '/analytics/quality'
+      preLoaderRoute: typeof AnalyticsQualityRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
+    '/analytics/revenue': {
+      id: '/analytics/revenue'
+      path: '/revenue'
+      fullPath: '/analytics/revenue'
+      preLoaderRoute: typeof AnalyticsRevenueRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
   }
 }
 
 interface AnalyticsRouteChildren {
+  AnalyticsClaimsRoute: typeof AnalyticsClaimsRoute
+  AnalyticsClinicalRoute: typeof AnalyticsClinicalRoute
   AnalyticsExecutiveRoute: typeof AnalyticsExecutiveRoute
+  AnalyticsQualityRoute: typeof AnalyticsQualityRoute
+  AnalyticsRevenueRoute: typeof AnalyticsRevenueRoute
   AnalyticsIndexRoute: typeof AnalyticsIndexRoute
 }
 
 const AnalyticsRouteChildren: AnalyticsRouteChildren = {
+  AnalyticsClaimsRoute: AnalyticsClaimsRoute,
+  AnalyticsClinicalRoute: AnalyticsClinicalRoute,
   AnalyticsExecutiveRoute: AnalyticsExecutiveRoute,
+  AnalyticsQualityRoute: AnalyticsQualityRoute,
+  AnalyticsRevenueRoute: AnalyticsRevenueRoute,
   AnalyticsIndexRoute: AnalyticsIndexRoute,
 }
 
@@ -120,3 +216,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
