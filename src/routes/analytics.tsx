@@ -53,6 +53,13 @@ function AnalyticsLayout() {
     <div className="min-h-screen bg-background">
       <div className="sticky top-0 z-20 border-b border-border bg-card/95 backdrop-blur">
         <div className="mx-auto flex max-w-[1600px] items-center gap-1 overflow-x-auto px-4 py-2">
+          <Link
+            to="/"
+            className="mr-2 shrink-0 text-sm font-semibold tracking-tight text-brand hover:opacity-80"
+          >
+            SugboDoc
+          </Link>
+          <div className="mr-1 h-5 w-px shrink-0 bg-border" />
           {subSections.map((item) => {
             const active = pathname.startsWith(item.to);
             return (

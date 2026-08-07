@@ -4,6 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -87,7 +88,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:title", content: "SugboDoc — Hospital Operations & Analytics" },
       {
         property: "og:description",
-        content: "Hospital operations, PhilHealth claims and clinical analytics for Philippine facilities.",
+        content:
+          "Hospital operations, PhilHealth claims and clinical analytics for Philippine facilities.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -144,7 +146,9 @@ function AppNav() {
                 key={item.label}
                 to={item.to}
                 className="rounded-md px-2.5 py-1.5 text-sm text-text-secondary transition-colors hover:bg-muted hover:text-text-primary"
-                activeProps={{ className: "rounded-md px-2.5 py-1.5 text-sm font-medium text-brand bg-brand/10" }}
+                activeProps={{
+                  className: "rounded-md px-2.5 py-1.5 text-sm font-medium text-brand bg-brand/10",
+                }}
                 activeOptions={{ exact: item.to === "/" }}
               >
                 {item.label}
@@ -165,12 +169,19 @@ function AppNav() {
   );
 }
 
+/** Sections that ship their own sub-nav (with a way back to Dashboard built in) —
+ *  showing the global AppNav above it as well is redundant, so it's hidden here. */
+function hasOwnSubNav(pathname: string): boolean {
+  return pathname.startsWith("/analytics") || pathname.startsWith("/lgu/analytics");
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AppNav />
+      {!hasOwnSubNav(pathname) ? <AppNav /> : null}
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
     </QueryClientProvider>
