@@ -49,12 +49,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import {
-  DashboardData,
-  fetchDashboardData,
-  KpiMetric,
-  PatientAlert,
-} from "@/lib/analytics.mock";
+import { DashboardData, fetchDashboardData, KpiMetric, PatientAlert } from "@/lib/analytics.mock";
 
 import {
   Bar,
@@ -166,13 +161,7 @@ function TrendIndicator({ metric }: { metric: KpiMetric }) {
   );
 }
 
-function KpiCard({
-  metric,
-  onClick,
-}: {
-  metric: KpiMetric;
-  onClick: (metric: KpiMetric) => void;
-}) {
+function KpiCard({ metric, onClick }: { metric: KpiMetric; onClick: (metric: KpiMetric) => void }) {
   const Icon = kpiIcons[metric.id] ?? Activity;
   return (
     <button
@@ -236,7 +225,9 @@ function DetailDrawer({
             <>
               <div className="rounded-lg border bg-card p-4">
                 <div className="text-sm text-muted-foreground">Current value</div>
-                <div className="mt-1 text-3xl font-bold text-foreground">{selection.item.value}</div>
+                <div className="mt-1 text-3xl font-bold text-foreground">
+                  {selection.item.value}
+                </div>
                 <div className="mt-2 flex items-center gap-3">
                   <TrendIndicator metric={selection.item} />
                   <span className="text-xs text-muted-foreground">
@@ -245,15 +236,17 @@ function DetailDrawer({
                 </div>
                 {selection.item.target && (
                   <div className="mt-3 text-xs text-muted-foreground">
-                    Target: <span className="font-medium text-foreground">{selection.item.target}</span>
+                    Target:{" "}
+                    <span className="font-medium text-foreground">{selection.item.target}</span>
                   </div>
                 )}
               </div>
               <div>
                 <h4 className="text-sm font-semibold text-foreground">Suggested action</h4>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Review the underlying trend for {selection.item.label.toLowerCase()} and escalate to the
-                  responsible department head if the variance exceeds the governance threshold.
+                  Review the underlying trend for {selection.item.label.toLowerCase()} and escalate
+                  to the responsible department head if the variance exceeds the governance
+                  threshold.
                 </p>
               </div>
             </>
@@ -284,7 +277,9 @@ function DetailDrawer({
               </div>
               <div>
                 <h4 className="text-sm font-semibold text-foreground">Source</h4>
-                <code className="mt-1 block text-xs text-muted-foreground">{selection.item.source}</code>
+                <code className="mt-1 block text-xs text-muted-foreground">
+                  {selection.item.source}
+                </code>
               </div>
               <div className="flex items-center gap-3">
                 <Badge className={alertPriorityVariant[selection.item.priority]}>
@@ -387,7 +382,12 @@ export function MedicalDirectorDashboard() {
                 <span className="text-border">vs</span>
                 <span>{data?.priorPeriod ?? "July 2026"}</span>
               </div>
-              <Button variant="outline" size="icon" onClick={() => refetch()} aria-label="Refresh data">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => refetch()}
+                aria-label="Refresh data"
+              >
                 <RefreshCw className="h-4 w-4" />
               </Button>
               {highPriorityAlerts > 0 && (
@@ -434,9 +434,16 @@ export function MedicalDirectorDashboard() {
                 </CardHeader>
                 <CardContent>
                   <ChartContainer config={occupancyConfig} aria-label="Bed occupancy trend chart">
-                    <LineChart data={data?.occupancy ?? []} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+                    <LineChart
+                      data={data?.occupancy ?? []}
+                      margin={{ top: 8, right: 16, bottom: 8, left: 0 }}
+                    >
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fontSize: 12 }}
+                        stroke="var(--color-muted-foreground)"
+                      />
                       <YAxis
                         domain={[0, 100]}
                         tick={{ fontSize: 12 }}
@@ -489,7 +496,11 @@ export function MedicalDirectorDashboard() {
                       margin={{ top: 8, right: 16, bottom: 8, left: 24 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                      <XAxis type="number" tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
+                      <XAxis
+                        type="number"
+                        tick={{ fontSize: 12 }}
+                        stroke="var(--color-muted-foreground)"
+                      />
                       <YAxis
                         dataKey="department"
                         type="category"
@@ -521,7 +532,9 @@ export function MedicalDirectorDashboard() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">OR Utilization</CardTitle>
-                  <CardDescription>Scheduled vs completed cases and utilization rate</CardDescription>
+                  <CardDescription>
+                    Scheduled vs completed cases and utilization rate
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ChartContainer
@@ -529,9 +542,16 @@ export function MedicalDirectorDashboard() {
                     className="aspect-[4/3]"
                     aria-label="Operating room utilization chart"
                   >
-                    <ComposedChart data={data?.orUtilization ?? []} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+                    <ComposedChart
+                      data={data?.orUtilization ?? []}
+                      margin={{ top: 8, right: 16, bottom: 8, left: 0 }}
+                    >
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fontSize: 12 }}
+                        stroke="var(--color-muted-foreground)"
+                      />
                       <YAxis
                         yAxisId="left"
                         tick={{ fontSize: 12 }}
@@ -589,13 +609,17 @@ export function MedicalDirectorDashboard() {
                       margin={{ top: 8, right: 16, bottom: 8, left: 24 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                      <XAxis type="number" tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
+                      <XAxis
+                        type="number"
+                        tick={{ fontSize: 12 }}
+                        stroke="var(--color-muted-foreground)"
+                      />
                       <YAxis
-                        dataKey="code"
+                        dataKey="commonName"
                         type="category"
                         tick={{ fontSize: 12 }}
                         stroke="var(--color-muted-foreground)"
-                        width={48}
+                        width={120}
                       />
                       <ChartTooltip
                         content={
@@ -632,10 +656,20 @@ export function MedicalDirectorDashboard() {
                   <CardDescription>Admissions, discharges, and emergency visits</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ChartContainer config={volumeConfig} aria-label="Patient volume and discharges chart">
-                    <LineChart data={data?.volume ?? []} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+                  <ChartContainer
+                    config={volumeConfig}
+                    aria-label="Patient volume and discharges chart"
+                  >
+                    <LineChart
+                      data={data?.volume ?? []}
+                      margin={{ top: 8, right: 16, bottom: 8, left: 0 }}
+                    >
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fontSize: 12 }}
+                        stroke="var(--color-muted-foreground)"
+                      />
                       <YAxis tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
                       <ChartTooltip content={<ChartTooltipContent />} />
                       <Line
@@ -677,13 +711,30 @@ export function MedicalDirectorDashboard() {
                     className="aspect-[4/3]"
                     aria-label="Quality events chart"
                   >
-                    <BarChart data={data?.qualityEvents ?? []} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+                    <BarChart
+                      data={data?.qualityEvents ?? []}
+                      margin={{ top: 8, right: 16, bottom: 8, left: 0 }}
+                    >
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fontSize: 12 }}
+                        stroke="var(--color-muted-foreground)"
+                      />
                       <YAxis tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
                       <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="falls" stackId="a" fill="var(--color-falls)" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="infections" stackId="a" fill="var(--color-infections)" radius={[4, 4, 0, 0]} />
+                      <Bar
+                        dataKey="falls"
+                        stackId="a"
+                        fill="var(--color-falls)"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="infections"
+                        stackId="a"
+                        fill="var(--color-infections)"
+                        radius={[4, 4, 0, 0]}
+                      />
                       <Bar
                         dataKey="medicationErrors"
                         stackId="a"
@@ -705,9 +756,7 @@ export function MedicalDirectorDashboard() {
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-base">Alerts & Action Items</CardTitle>
-                <CardDescription>
-                  {openAlerts} open items requiring attention
-                </CardDescription>
+                <CardDescription>{openAlerts} open items requiring attention</CardDescription>
               </div>
               <Button variant="outline" size="sm" className="gap-1">
                 View all <ChevronRight className="h-4 w-4" />
@@ -747,11 +796,16 @@ export function MedicalDirectorDashboard() {
                             <div className="text-xs text-muted-foreground">{alert.patientId}</div>
                           </TableCell>
                           <TableCell>
-                            <Badge className={alertCategoryVariant[alert.category]} variant="outline">
+                            <Badge
+                              className={alertCategoryVariant[alert.category]}
+                              variant="outline"
+                            >
                               {alert.category}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{alert.department}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {alert.department}
+                          </TableCell>
                           <TableCell className="max-w-xs truncate text-sm text-muted-foreground">
                             {alert.summary}
                           </TableCell>

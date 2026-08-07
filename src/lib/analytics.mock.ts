@@ -6,6 +6,7 @@
  * chart/table consumption. Values are in PHP and reflect the current month
  * compared with the prior month.
  */
+import { PH_TOP_DIAGNOSES } from "./analytics/ph-constants";
 
 export type KpiStatus = "good" | "warning" | "danger" | "neutral";
 
@@ -43,6 +44,8 @@ export interface OrUtilizationPoint {
 export interface DiagnosisTop {
   code: string;
   description: string;
+  /** Short everyday name — used for chart axis labels instead of the ICD-10 code. */
+  commonName: string;
   count: number;
 }
 
@@ -252,18 +255,15 @@ export const orUtilization: OrUtilizationPoint[] = [
   { date: "Sun", scheduled: 12, completed: 9, utilization: 75.0 },
 ];
 
-export const topDiagnoses: DiagnosisTop[] = [
-  { code: "J44.9", description: "COPD, unspecified", count: 94 },
-  { code: "I10", description: "Essential hypertension", count: 87 },
-  { code: "E11.9", description: "Type 2 diabetes mellitus", count: 76 },
-  { code: "A09", description: "Gastroenteritis and colitis", count: 68 },
-  { code: "N39.0", description: "Urinary tract infection", count: 62 },
-  { code: "J18.9", description: "Pneumonia, unspecified", count: 58 },
-  { code: "S52.5", description: "Fracture of lower forearm", count: 45 },
-  { code: "K29.7", description: "Gastritis", count: 41 },
-  { code: "O80", description: "Single spontaneous delivery", count: 38 },
-  { code: "M25.5", description: "Joint pain", count: 32 },
-];
+const topDiagnosisCounts = [94, 87, 76, 68, 62, 58, 45, 41, 38, 32];
+
+/** Aligned to the canonical Philippines top-diagnosis ICD-10 list (see ph-constants.ts). */
+export const topDiagnoses: DiagnosisTop[] = PH_TOP_DIAGNOSES.slice(0, 10).map((d, i) => ({
+  code: d.code,
+  description: d.description,
+  commonName: d.commonName,
+  count: topDiagnosisCounts[i] ?? 30,
+}));
 
 export const qualityEvents: QualityEventPoint[] = [
   { date: "Week 1", falls: 2, infections: 1, medicationErrors: 1 },
