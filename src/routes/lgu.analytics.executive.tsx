@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import {
   KpiStrip,
   MetricCard,
@@ -125,6 +126,101 @@ function reportHrefForKpi(id: string): string | undefined {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Geo-scoped visibility — a Mayor / CHO sees all barangays, while a    */
+/* Barangay Health Worker is locked to their own barangay's data only.  */
+/* Mirrors the mock-role pattern (localStorage, no real auth) used      */
+/* elsewhere in this prototype.                                        */
+/* ------------------------------------------------------------------ */
+
+type GeoRole = "Mayor" | "Barangay";
+
+function useGeoRole(): {
+  geoRole: GeoRole;
+  setGeoRole: (r: GeoRole) => void;
+  geoBarangayId: string;
+  setGeoBarangayId: (id: string) => void;
+} {
+  const [geoRole, setGeoRoleState] = React.useState<GeoRole>("Mayor");
+  const [geoBarangayId, setGeoBarangayIdState] = React.useState("");
+  React.useEffect(() => {
+    try {
+      const savedRole = window.localStorage.getItem("sugbodoc-lgu-geo-role");
+      if (savedRole === "Mayor" || savedRole === "Barangay") setGeoRoleState(savedRole);
+      const savedBarangay = window.localStorage.getItem("sugbodoc-lgu-geo-barangay");
+      if (savedBarangay) setGeoBarangayIdState(savedBarangay);
+    } catch {
+      // ignore
+    }
+  }, []);
+  const setGeoRole = React.useCallback((r: GeoRole) => {
+    setGeoRoleState(r);
+    try {
+      window.localStorage.setItem("sugbodoc-lgu-geo-role", r);
+    } catch {
+      // ignore
+    }
+  }, []);
+  const setGeoBarangayId = React.useCallback((id: string) => {
+    setGeoBarangayIdState(id);
+    try {
+      window.localStorage.setItem("sugbodoc-lgu-geo-barangay", id);
+    } catch {
+      // ignore
+    }
+  }, []);
+  return { geoRole, setGeoRole, geoBarangayId, setGeoBarangayId };
+}
+
+function GeoRoleSwitcher({
+  geoRole,
+  onGeoRoleChange,
+  barangayId,
+  onBarangayChange,
+  barangayOptions,
+}: {
+  geoRole: GeoRole;
+  onGeoRoleChange: (r: GeoRole) => void;
+  barangayId: string;
+  onBarangayChange: (id: string) => void;
+  barangayOptions: { label: string; value: string }[];
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <div className="inline-flex items-center gap-1 rounded-md border border-border bg-card p-0.5 text-xs">
+        {(["Mayor", "Barangay"] as const).map((r) => (
+          <button
+            key={r}
+            onClick={() => onGeoRoleChange(r)}
+            className={cn(
+              "rounded px-2 py-1 font-medium transition-colors",
+              geoRole === r
+                ? "bg-brand text-brand-foreground"
+                : "text-text-secondary hover:text-text-primary",
+            )}
+          >
+            {r === "Mayor" ? "Mayor / CHO" : "Barangay Health Worker"}
+          </button>
+        ))}
+      </div>
+      {geoRole === "Barangay" ? (
+        <Select value={barangayId} onValueChange={onBarangayChange}>
+          <SelectTrigger className="h-7 w-48 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {barangayOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value} className="text-xs">
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : null}
+    </div>
+  );
+}
+
 function LguExecutivePage() {
   const { data, isLoading } = useQuery({
     queryKey: ["lgu-analytics", "executive"],
@@ -135,6 +231,7 @@ function LguExecutivePage() {
   const [ageGroup, setAgeGroup] = React.useState<"all" | "under5">("all");
   const [epiGranularity, setEpiGranularity] = React.useState("week");
   const [role, setRole] = useMockRole();
+  const { geoRole, setGeoRole, geoBarangayId, setGeoBarangayId } = useGeoRole();
   const {
     values: filterValues,
     setValues: setFilterValues,
@@ -148,13 +245,20 @@ function LguExecutivePage() {
   if (isLoading || !data) return <LguExecutiveSkeleton />;
 
   const barangayOptions = data.barangays.map((b) => ({ label: b.name, value: b.id }));
-  const activeBarangayId =
-    filterValues["barangay"] && filterValues["barangay"] !== "all"
+  const isBarangayScoped = geoRole === "Barangay";
+  const effectiveGeoBarangayId = geoBarangayId || data.barangays[0]!.id;
+  const geoBarangay =
+    data.barangays.find((b) => b.id === effectiveGeoBarangayId) ?? data.barangays[0]!;
+  const activeBarangayId = isBarangayScoped
+    ? effectiveGeoBarangayId
+    : filterValues["barangay"] && filterValues["barangay"] !== "all"
       ? filterValues["barangay"]
       : null;
-  const activeBarangay = activeBarangayId
-    ? data.barangays.find((b) => b.id === activeBarangayId)
-    : null;
+  const activeBarangay = isBarangayScoped
+    ? geoBarangay
+    : activeBarangayId
+      ? data.barangays.find((b) => b.id === activeBarangayId)
+      : null;
 
   const epiWindowSize = Math.min(zoomWindowSize[epiZoomPreset], data.epiCurve.length);
   const epiMaxOffset = data.epiCurve.length - epiWindowSize;
@@ -214,247 +318,287 @@ function LguExecutivePage() {
             LGU Executive / CHO Dashboard
           </h1>
           <p className="text-sm text-text-muted">
-            {data.period} · compared with {data.priorPeriod} · catchment population{" "}
-            {num(data.totalPopulation)}
+            {isBarangayScoped
+              ? `${geoBarangay.name} · ${geoBarangay.bhc}`
+              : `${data.period} · compared with ${data.priorPeriod} · catchment population ${num(data.totalPopulation)}`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <RoleSwitcher role={role} onChange={setRole} />
-          <StatusBadge tone="neutral">{data.role} view</StatusBadge>
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex items-center gap-2">
+            <RoleSwitcher role={role} onChange={setRole} />
+            <StatusBadge tone="neutral">{data.role} view</StatusBadge>
+          </div>
+          <GeoRoleSwitcher
+            geoRole={geoRole}
+            onGeoRoleChange={setGeoRole}
+            barangayId={effectiveGeoBarangayId}
+            onBarangayChange={setGeoBarangayId}
+            barangayOptions={barangayOptions}
+          />
         </div>
       </header>
 
-      <GlobalFilterBar
-        filters={[{ key: "barangay", label: "Barangay", options: barangayOptions }]}
-        values={filterValues}
-        onChange={(key, value) => setFilterValues((v) => ({ ...v, [key]: value }))}
-        dateRange={dateRange}
-        onDateRangeChange={setDateRange}
-      />
-
-      {data.outbreaks.length > 0 ? <OutbreakBanner diseases={data.outbreaks} /> : null}
-
-      {/* ZONE A — LGU KPI strip (8 cards) */}
-      <section className="space-y-3">
-        <SectionTitle
-          title="Key performance indicators"
-          description="Month to date, drill any card for detail."
+      {isBarangayScoped ? (
+        <div className="flex items-center gap-2 rounded-lg border border-brand/30 bg-brand/5 p-2.5 text-xs text-text-secondary">
+          <span className="font-medium text-brand">Barangay-scoped view:</span>
+          you're seeing data for <span className="font-medium">{geoBarangay.name}</span> only.
+          Switch to Mayor / CHO above for the citywide dashboard.
+        </div>
+      ) : (
+        <GlobalFilterBar
+          filters={[{ key: "barangay", label: "Barangay", options: barangayOptions }]}
+          values={filterValues}
+          onChange={(key, value) => setFilterValues((v) => ({ ...v, [key]: value }))}
+          dateRange={dateRange}
+          onDateRangeChange={setDateRange}
         />
-        <KpiStrip>
-          <MetricCard
-            label="Total Konsulta Visits (MTD)"
-            value={num(data.konsultaVisits.total)}
-            delta={data.konsultaVisits.deltaMonth}
-            secondary={`+${data.konsultaVisits.deltaYear}% vs same month last year`}
-            status="neutral"
-            icon={Stethoscope}
-            onClick={() => setDrill({ kind: "kpi", id: "konsulta" })}
+      )}
+
+      {!isBarangayScoped && data.outbreaks.length > 0 ? (
+        <OutbreakBanner diseases={data.outbreaks} />
+      ) : null}
+
+      {isBarangayScoped ? (
+        <section className="space-y-3">
+          <SectionTitle
+            title={`${geoBarangay.name} health profile`}
+            description="Scoped to your barangay only — click a diagnosis or metric row in the Reports module for more detail."
           />
-          <MetricCard
-            label="PhilHealth Konsulta Claims (eKAS)"
-            value={num(data.ekas.submitted)}
-            delta={data.ekas.delta}
-            secondary={php(data.ekas.value, { compact: true })}
-            status={
-              data.ekas.daysToCutoff <= 5 && data.ekas.unsettledCount > 0 ? "danger" : "neutral"
-            }
-            icon={ShieldCheck}
-            {...(data.ekas.daysToCutoff <= 5 && data.ekas.unsettledCount > 0
-              ? {
-                  note: `${data.ekas.unsettledCount} unsettled, ${data.ekas.daysToCutoff}d to cutoff`,
+          <PanelCard
+            title={geoBarangay.name}
+            description={`${geoBarangay.bhc} · PHN: ${geoBarangay.phn}`}
+          >
+            <BarangayProfilePanel b={geoBarangay} />
+          </PanelCard>
+        </section>
+      ) : (
+        <>
+          {/* ZONE A — LGU KPI strip (8 cards) */}
+          <section className="space-y-3">
+            <SectionTitle
+              title="Key performance indicators"
+              description="Month to date, drill any card for detail."
+            />
+            <KpiStrip>
+              <MetricCard
+                label="Total Konsulta Visits (MTD)"
+                value={num(data.konsultaVisits.total)}
+                delta={data.konsultaVisits.deltaMonth}
+                secondary={`+${data.konsultaVisits.deltaYear}% vs same month last year`}
+                status="neutral"
+                icon={Stethoscope}
+                onClick={() => setDrill({ kind: "kpi", id: "konsulta" })}
+              />
+              <MetricCard
+                label="PhilHealth Konsulta Claims (eKAS)"
+                value={num(data.ekas.submitted)}
+                delta={data.ekas.delta}
+                secondary={php(data.ekas.value, { compact: true })}
+                status={
+                  data.ekas.daysToCutoff <= 5 && data.ekas.unsettledCount > 0 ? "danger" : "neutral"
                 }
-              : {})}
-            onClick={() => setDrill({ kind: "kpi", id: "ekas" })}
-          />
-          <MetricCard
-            label="Active TB Cases (DOTS)"
-            value={num(data.tbDots.activeCases)}
-            delta={data.tbDots.delta}
-            invertDelta
-            secondary={`${pct(data.tbDots.treatmentSuccessRate)} treatment success`}
-            status={data.tbDots.treatmentSuccessRate >= 90 ? "good" : "warning"}
-            icon={Activity}
-            onClick={() => setDrill({ kind: "kpi", id: "tb" })}
-          />
-          <MetricCard
-            label="Immunization Coverage Rate"
-            value={pct(data.immunization.coverage)}
-            delta={data.immunization.delta}
-            secondary="Herd immunity target ≥95%"
-            status={coverageStatus(data.immunization.coverage, 95, 80)}
-            icon={Syringe}
-            onClick={() => setDrill({ kind: "kpi", id: "immunization" })}
-          />
-          <MetricCard
-            label="Maternal Care Coverage"
-            value={pct(data.maternalCoverage.value)}
-            delta={data.maternalCoverage.delta}
-            secondary="≥4 ANC visits, target ≥80%"
-            status={coverageStatus(data.maternalCoverage.value, 80, 60)}
-            icon={Baby}
-            onClick={() => setDrill({ kind: "kpi", id: "maternal" })}
-          />
-          <MetricCard
-            label="Hypertension Control Rate"
-            value={pct(data.htnControl.value)}
-            delta={data.htnControl.delta}
-            secondary="BP <140/90, target ≥50%"
-            status={coverageStatus(data.htnControl.value, 50, 30)}
-            icon={HeartPulse}
-            onClick={() => setDrill({ kind: "kpi", id: "htn" })}
-          />
-          <MetricCard
-            label="Diabetes Control Rate"
-            value={pct(data.dmControl.value)}
-            delta={data.dmControl.delta}
-            secondary="HbA1c <7%, target ≥50%"
-            status={coverageStatus(data.dmControl.value, 50, 30)}
-            icon={HeartPulse}
-            onClick={() => setDrill({ kind: "kpi", id: "dm" })}
-          />
-          <MetricCard
-            label="Referral Completion Rate"
-            value={pct(data.referralCompletion.value)}
-            delta={data.referralCompletion.delta}
-            secondary="Outcome documented, target ≥80%"
-            status={coverageStatus(data.referralCompletion.value, 80, 60)}
-            icon={Send}
-            onClick={() => setDrill({ kind: "kpi", id: "referral" })}
-          />
-        </KpiStrip>
-      </section>
+                icon={ShieldCheck}
+                {...(data.ekas.daysToCutoff <= 5 && data.ekas.unsettledCount > 0
+                  ? {
+                      note: `${data.ekas.unsettledCount} unsettled, ${data.ekas.daysToCutoff}d to cutoff`,
+                    }
+                  : {})}
+                onClick={() => setDrill({ kind: "kpi", id: "ekas" })}
+              />
+              <MetricCard
+                label="Active TB Cases (DOTS)"
+                value={num(data.tbDots.activeCases)}
+                delta={data.tbDots.delta}
+                invertDelta
+                secondary={`${pct(data.tbDots.treatmentSuccessRate)} treatment success`}
+                status={data.tbDots.treatmentSuccessRate >= 90 ? "good" : "warning"}
+                icon={Activity}
+                onClick={() => setDrill({ kind: "kpi", id: "tb" })}
+              />
+              <MetricCard
+                label="Immunization Coverage Rate"
+                value={pct(data.immunization.coverage)}
+                delta={data.immunization.delta}
+                secondary="Herd immunity target ≥95%"
+                status={coverageStatus(data.immunization.coverage, 95, 80)}
+                icon={Syringe}
+                onClick={() => setDrill({ kind: "kpi", id: "immunization" })}
+              />
+              <MetricCard
+                label="Maternal Care Coverage"
+                value={pct(data.maternalCoverage.value)}
+                delta={data.maternalCoverage.delta}
+                secondary="≥4 ANC visits, target ≥80%"
+                status={coverageStatus(data.maternalCoverage.value, 80, 60)}
+                icon={Baby}
+                onClick={() => setDrill({ kind: "kpi", id: "maternal" })}
+              />
+              <MetricCard
+                label="Hypertension Control Rate"
+                value={pct(data.htnControl.value)}
+                delta={data.htnControl.delta}
+                secondary="BP <140/90, target ≥50%"
+                status={coverageStatus(data.htnControl.value, 50, 30)}
+                icon={HeartPulse}
+                onClick={() => setDrill({ kind: "kpi", id: "htn" })}
+              />
+              <MetricCard
+                label="Diabetes Control Rate"
+                value={pct(data.dmControl.value)}
+                delta={data.dmControl.delta}
+                secondary="HbA1c <7%, target ≥50%"
+                status={coverageStatus(data.dmControl.value, 50, 30)}
+                icon={HeartPulse}
+                onClick={() => setDrill({ kind: "kpi", id: "dm" })}
+              />
+              <MetricCard
+                label="Referral Completion Rate"
+                value={pct(data.referralCompletion.value)}
+                delta={data.referralCompletion.delta}
+                secondary="Outcome documented, target ≥80%"
+                status={coverageStatus(data.referralCompletion.value, 80, 60)}
+                icon={Send}
+                onClick={() => setDrill({ kind: "kpi", id: "referral" })}
+              />
+            </KpiStrip>
+          </section>
 
-      {/* ZONE B — barangay choropleth */}
-      <section className="space-y-3">
-        <SectionTitle
-          title="Barangay health map"
-          description="Click a barangay for its full health profile."
-          action={
-            <Select value={metric} onValueChange={(v) => setMetric(v as ChoroplethMetricKey)}>
-              <SelectTrigger className="h-8 w-64 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CHOROPLETH_METRICS.map((m) => (
-                  <SelectItem key={m.key} value={m.key} className="text-xs">
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          }
-        />
-        <PanelCard
-          title={metricDef.label}
-          description={`Range: 0 – ${maxValue}${metricDef.unit} across 15 barangays`}
-        >
-          <BarangayChoropleth
-            data={choroplethData}
-            maxValue={maxValue}
-            onSelect={(d) => setDrill({ kind: "barangay", id: d.id })}
-          />
-        </PanelCard>
-      </section>
+          {/* ZONE B — barangay choropleth */}
+          <section className="space-y-3">
+            <SectionTitle
+              title="Barangay health map"
+              description="Click a barangay for its full health profile."
+              action={
+                <Select value={metric} onValueChange={(v) => setMetric(v as ChoroplethMetricKey)}>
+                  <SelectTrigger className="h-8 w-64 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CHOROPLETH_METRICS.map((m) => (
+                      <SelectItem key={m.key} value={m.key} className="text-xs">
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              }
+            />
+            <PanelCard
+              title={metricDef.label}
+              description={`Range: 0 – ${maxValue}${metricDef.unit} across 15 barangays`}
+            >
+              <BarangayChoropleth
+                data={choroplethData}
+                maxValue={maxValue}
+                onSelect={(d) => setDrill({ kind: "barangay", id: d.id })}
+              />
+            </PanelCard>
+          </section>
+        </>
+      )}
 
       {/* ZONE C — disease surveillance */}
       <section className="grid gap-4 xl:grid-cols-3">
-        <InteractiveChartCard
-          title="Epidemic Curve"
-          description={`New cases by ${epiGranularity} · dengue vs prior-year baseline`}
-          className="xl:col-span-2"
-          table={{ columns: epiTableColumns, rows: epiCurveWindow }}
-          action={
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Tabs value={epiGranularity} onValueChange={setEpiGranularity}>
-                <TabsList className="h-7">
-                  <TabsTrigger value="week" className="text-xs">
-                    Weekly
-                  </TabsTrigger>
-                  <TabsTrigger value="day" className="text-xs">
-                    Daily
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-              <ZoomControls
-                preset={epiZoomPreset}
-                onPresetChange={(p) => {
-                  setEpiZoomPreset(p);
-                  setEpiZoomOffset(0);
-                }}
-                onShift={(dir) => setEpiZoomOffset((o) => o + dir)}
-                zoomed={epiIsZoomed}
-                onReset={() => {
-                  setEpiZoomPreset("All");
-                  setEpiZoomOffset(0);
-                }}
-              />
-              <AddAnnotationButton
-                role={role}
-                xOptions={epiCurveWindow.map((d) => d.period)}
-                onAdd={(x, note) => addAnnotation(x, note, "You (Admin)")}
-              />
-            </div>
-          }
-        >
-          <ResponsiveContainer width="100%" height={300}>
-            <ComposedChart data={epiCurveWindow} margin={{ left: -12, right: 8, top: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
-              <XAxis dataKey="period" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={40} />
-              <Tooltip content={<RichTooltip valueFormatter={num} clickHint={false} />} />
-              <ReferenceLine
-                y={epiCurveWindow[0]?.dengueBaseline ?? 0}
-                stroke={PALETTE.neutral}
-                strokeDasharray="4 4"
-                label={{ value: "Baseline", fontSize: 10, position: "insideTopLeft" }}
-              />
-              <Bar dataKey="dengue" name="Dengue" radius={[3, 3, 0, 0]}>
-                {epiCurveWindow.map((d, i) => (
-                  <Cell
-                    key={i}
-                    fill={d.dengue >= d.dengueBaseline * 2 ? LGU_COLORS.outbreak : PALETTE.brand}
-                  />
-                ))}
-              </Bar>
-              <Line
-                type="monotone"
-                dataKey="ari"
-                name="ARI"
-                stroke={PALETTE.philhealth}
-                strokeWidth={1.75}
-                dot={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="diarrhea"
-                name="Diarrhea"
-                stroke={PALETTE.warning}
-                strokeWidth={1.75}
-                dot={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="measles"
-                name="Measles"
-                stroke={LGU_COLORS.outbreak}
-                strokeWidth={1.75}
-                dot={false}
-              />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-            </ComposedChart>
-          </ResponsiveContainer>
-          <p className="mt-1 text-[11px] text-text-muted">
-            Bars turn dark red when a week exceeds 2× the prior-year baseline — the trigger for an
-            outbreak investigation.
-          </p>
-          <AnnotationList
-            annotations={annotations}
-            {...(role === "Admin" ? { onRemove: removeAnnotation } : {})}
-          />
-        </InteractiveChartCard>
+        {!isBarangayScoped ? (
+          <InteractiveChartCard
+            title="Epidemic Curve"
+            description={`New cases by ${epiGranularity} · dengue vs prior-year baseline`}
+            className="xl:col-span-2"
+            table={{ columns: epiTableColumns, rows: epiCurveWindow }}
+            action={
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Tabs value={epiGranularity} onValueChange={setEpiGranularity}>
+                  <TabsList className="h-7">
+                    <TabsTrigger value="week" className="text-xs">
+                      Weekly
+                    </TabsTrigger>
+                    <TabsTrigger value="day" className="text-xs">
+                      Daily
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+                <ZoomControls
+                  preset={epiZoomPreset}
+                  onPresetChange={(p) => {
+                    setEpiZoomPreset(p);
+                    setEpiZoomOffset(0);
+                  }}
+                  onShift={(dir) => setEpiZoomOffset((o) => o + dir)}
+                  zoomed={epiIsZoomed}
+                  onReset={() => {
+                    setEpiZoomPreset("All");
+                    setEpiZoomOffset(0);
+                  }}
+                />
+                <AddAnnotationButton
+                  role={role}
+                  xOptions={epiCurveWindow.map((d) => d.period)}
+                  onAdd={(x, note) => addAnnotation(x, note, "You (Admin)")}
+                />
+              </div>
+            }
+          >
+            <ResponsiveContainer width="100%" height={300}>
+              <ComposedChart data={epiCurveWindow} margin={{ left: -12, right: 8, top: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
+                <XAxis dataKey="period" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={40} />
+                <Tooltip content={<RichTooltip valueFormatter={num} clickHint={false} />} />
+                <ReferenceLine
+                  y={epiCurveWindow[0]?.dengueBaseline ?? 0}
+                  stroke={PALETTE.neutral}
+                  strokeDasharray="4 4"
+                  label={{ value: "Baseline", fontSize: 10, position: "insideTopLeft" }}
+                />
+                <Bar dataKey="dengue" name="Dengue" radius={[3, 3, 0, 0]}>
+                  {epiCurveWindow.map((d, i) => (
+                    <Cell
+                      key={i}
+                      fill={d.dengue >= d.dengueBaseline * 2 ? LGU_COLORS.outbreak : PALETTE.brand}
+                    />
+                  ))}
+                </Bar>
+                <Line
+                  type="monotone"
+                  dataKey="ari"
+                  name="ARI"
+                  stroke={PALETTE.philhealth}
+                  strokeWidth={1.75}
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="diarrhea"
+                  name="Diarrhea"
+                  stroke={PALETTE.warning}
+                  strokeWidth={1.75}
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="measles"
+                  name="Measles"
+                  stroke={LGU_COLORS.outbreak}
+                  strokeWidth={1.75}
+                  dot={false}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+            <p className="mt-1 text-[11px] text-text-muted">
+              Bars turn dark red when a week exceeds 2× the prior-year baseline — the trigger for an
+              outbreak investigation.
+            </p>
+            <AnnotationList
+              annotations={annotations}
+              {...(role === "Admin" ? { onRemove: removeAnnotation } : {})}
+            />
+          </InteractiveChartCard>
+        ) : null}
 
         <InteractiveChartCard
           title="Ten Leading Causes of Morbidity"
+          {...(isBarangayScoped ? { className: "xl:col-span-3" } : {})}
           description={
             activeBarangay
               ? `${activeBarangay.name} · top diagnoses this month`
@@ -577,42 +721,7 @@ function BarangayDrawer({
       title = `${b.name} Health Profile`;
       description = `${b.bhc} · PHN: ${b.phn}`;
       fullReportHref = "/lgu/reports/community-household-health-profile";
-      body = (
-        <div className="space-y-5">
-          <div className="grid grid-cols-2 gap-3">
-            <StatCard label="Population served" value={num(b.population)} />
-            <StatCard label="Registered patients" value={num(b.registeredPatients)} />
-            <StatCard label="TB patients on treatment" value={num(b.tbOnTreatment)} />
-            <StatCard label="Active referrals" value={num(b.activeReferrals)} />
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-text-secondary">Visits by service type</p>
-            {b.visitsByType.map((v) => (
-              <StatRow key={v.type} label={v.type} value={num(v.count)} />
-            ))}
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-text-secondary">Top 5 diagnoses</p>
-            {b.topDiagnoses.map((d) => (
-              <StatRow key={d.code} label={`${d.code} · ${d.description}`} value={num(d.count)} />
-            ))}
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-text-secondary">
-              Immunization coverage per antigen
-            </p>
-            {b.immunizationByAntigen.map((a) => (
-              <StatRow key={a.antigen} label={a.antigen} value={pct(a.coverage, 0)} />
-            ))}
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-text-secondary">Maternal risk count</p>
-            {b.maternalRiskCount.map((r) => (
-              <StatRow key={r.risk} label={r.risk} value={num(r.count)} />
-            ))}
-          </div>
-        </div>
-      );
+      body = <BarangayProfilePanel b={b} />;
     }
   } else if (drill?.kind === "kpi") {
     fullReportHref = reportHrefForKpi(drill.id);
@@ -781,6 +890,45 @@ function BarangayDrawer({
     >
       {body}
     </ChartDrillDrawer>
+  );
+}
+
+function BarangayProfilePanel({ b }: { b: BarangayMetricSet }) {
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Population served" value={num(b.population)} />
+        <StatCard label="Registered patients" value={num(b.registeredPatients)} />
+        <StatCard label="TB patients on treatment" value={num(b.tbOnTreatment)} />
+        <StatCard label="Active referrals" value={num(b.activeReferrals)} />
+      </div>
+      <div>
+        <p className="mb-1 text-xs font-medium text-text-secondary">Visits by service type</p>
+        {b.visitsByType.map((v) => (
+          <StatRow key={v.type} label={v.type} value={num(v.count)} />
+        ))}
+      </div>
+      <div>
+        <p className="mb-1 text-xs font-medium text-text-secondary">Top 5 diagnoses</p>
+        {b.topDiagnoses.map((d) => (
+          <StatRow key={d.code} label={`${d.code} · ${d.description}`} value={num(d.count)} />
+        ))}
+      </div>
+      <div>
+        <p className="mb-1 text-xs font-medium text-text-secondary">
+          Immunization coverage per antigen
+        </p>
+        {b.immunizationByAntigen.map((a) => (
+          <StatRow key={a.antigen} label={a.antigen} value={pct(a.coverage, 0)} />
+        ))}
+      </div>
+      <div>
+        <p className="mb-1 text-xs font-medium text-text-secondary">Maternal risk count</p>
+        {b.maternalRiskCount.map((r) => (
+          <StatRow key={r.risk} label={r.risk} value={num(r.count)} />
+        ))}
+      </div>
+    </div>
   );
 }
 
