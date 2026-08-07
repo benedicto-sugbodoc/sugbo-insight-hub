@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as AnalyticsIndexRouteImport } from './routes/analytics.index'
+import { Route as AnalyticsExecutiveRouteImport } from './routes/analytics.executive'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,28 +29,36 @@ const AnalyticsIndexRoute = AnalyticsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AnalyticsRoute,
 } as any)
+const AnalyticsExecutiveRoute = AnalyticsExecutiveRouteImport.update({
+  id: '/executive',
+  path: '/executive',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRouteWithChildren
+  '/analytics/executive': typeof AnalyticsExecutiveRoute
   '/analytics/': typeof AnalyticsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/analytics/executive': typeof AnalyticsExecutiveRoute
   '/analytics': typeof AnalyticsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRouteWithChildren
+  '/analytics/executive': typeof AnalyticsExecutiveRoute
   '/analytics/': typeof AnalyticsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/analytics' | '/analytics/'
+  fullPaths: '/' | '/analytics' | '/analytics/executive' | '/analytics/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/analytics'
-  id: '__root__' | '/' | '/analytics' | '/analytics/'
+  to: '/' | '/analytics/executive' | '/analytics'
+  id: '__root__' | '/' | '/analytics' | '/analytics/executive' | '/analytics/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -80,14 +89,23 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnalyticsIndexRouteImport
       parentRoute: typeof AnalyticsRoute
     }
+    '/analytics/executive': {
+      id: '/analytics/executive'
+      path: '/executive'
+      fullPath: '/analytics/executive'
+      preLoaderRoute: typeof AnalyticsExecutiveRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
   }
 }
 
 interface AnalyticsRouteChildren {
+  AnalyticsExecutiveRoute: typeof AnalyticsExecutiveRoute
   AnalyticsIndexRoute: typeof AnalyticsIndexRoute
 }
 
 const AnalyticsRouteChildren: AnalyticsRouteChildren = {
+  AnalyticsExecutiveRoute: AnalyticsExecutiveRoute,
   AnalyticsIndexRoute: AnalyticsIndexRoute,
 }
 
