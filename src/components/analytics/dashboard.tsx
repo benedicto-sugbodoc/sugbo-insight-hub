@@ -438,7 +438,7 @@ export function MedicalDirectorDashboard() {
                 </CardHeader>
                 <CardContent>
                   <ChartContainer config={occupancyConfig} aria-label="Bed occupancy trend chart">
-                    <LineChart data={data?.occupancy} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+                    <LineChart data={data?.occupancy ?? []} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
                       <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
                       <YAxis
@@ -488,7 +488,7 @@ export function MedicalDirectorDashboard() {
                     aria-label="Admissions by department chart"
                   >
                     <BarChart
-                      data={data?.departmentAdmissions}
+                      data={data?.departmentAdmissions ?? []}
                       layout="vertical"
                       margin={{ top: 8, right: 16, bottom: 8, left: 24 }}
                     >
@@ -533,7 +533,7 @@ export function MedicalDirectorDashboard() {
                     className="aspect-[4/3]"
                     aria-label="Operating room utilization chart"
                   >
-                    <ComposedChart data={data?.orUtilization} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+                    <ComposedChart data={data?.orUtilization ?? []} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
                       <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
                       <YAxis
@@ -588,7 +588,7 @@ export function MedicalDirectorDashboard() {
                     aria-label="Top diagnoses chart"
                   >
                     <BarChart
-                      data={data?.topDiagnoses}
+                      data={data?.topDiagnoses ?? []}
                       layout="vertical"
                       margin={{ top: 8, right: 16, bottom: 8, left: 24 }}
                     >
@@ -637,7 +637,7 @@ export function MedicalDirectorDashboard() {
                 </CardHeader>
                 <CardContent>
                   <ChartContainer config={volumeConfig} aria-label="Patient volume and discharges chart">
-                    <LineChart data={data?.volume} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+                    <LineChart data={data?.volume ?? []} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
                       <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
                       <YAxis tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
@@ -681,7 +681,7 @@ export function MedicalDirectorDashboard() {
                     className="aspect-[4/3]"
                     aria-label="Quality events chart"
                   >
-                    <BarChart data={data?.qualityEvents} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+                    <BarChart data={data?.qualityEvents ?? []} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
                       <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
                       <YAxis tick={{ fontSize: 12 }} stroke="var(--color-muted-foreground)" />
