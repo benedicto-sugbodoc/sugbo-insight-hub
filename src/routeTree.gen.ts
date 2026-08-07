@@ -18,6 +18,14 @@ import { Route as AnalyticsExecutiveRouteImport } from './routes/analytics.execu
 import { Route as AnalyticsLaboratoryRouteImport } from './routes/analytics.laboratory'
 import { Route as AnalyticsQualityRouteImport } from './routes/analytics.quality'
 import { Route as AnalyticsRevenueRouteImport } from './routes/analytics.revenue'
+import { Route as LguAnalyticsRouteImport } from './routes/lgu.analytics'
+import { Route as LguAnalyticsIndexRouteImport } from './routes/lgu.analytics.index'
+import { Route as LguAnalyticsExecutiveRouteImport } from './routes/lgu.analytics.executive'
+import { Route as LguAnalyticsKonsultaRouteImport } from './routes/lgu.analytics.konsulta'
+import { Route as LguAnalyticsMaternalRouteImport } from './routes/lgu.analytics.maternal'
+import { Route as LguAnalyticsNcdRouteImport } from './routes/lgu.analytics.ncd'
+import { Route as LguAnalyticsPopulationRouteImport } from './routes/lgu.analytics.population'
+import { Route as LguAnalyticsTbRouteImport } from './routes/lgu.analytics.tb'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -64,6 +72,46 @@ const AnalyticsRevenueRoute = AnalyticsRevenueRouteImport.update({
   path: '/revenue',
   getParentRoute: () => AnalyticsRoute,
 } as any)
+const LguAnalyticsRoute = LguAnalyticsRouteImport.update({
+  id: '/lgu/analytics',
+  path: '/lgu/analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LguAnalyticsIndexRoute = LguAnalyticsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => LguAnalyticsRoute,
+} as any)
+const LguAnalyticsExecutiveRoute = LguAnalyticsExecutiveRouteImport.update({
+  id: '/executive',
+  path: '/executive',
+  getParentRoute: () => LguAnalyticsRoute,
+} as any)
+const LguAnalyticsKonsultaRoute = LguAnalyticsKonsultaRouteImport.update({
+  id: '/konsulta',
+  path: '/konsulta',
+  getParentRoute: () => LguAnalyticsRoute,
+} as any)
+const LguAnalyticsMaternalRoute = LguAnalyticsMaternalRouteImport.update({
+  id: '/maternal',
+  path: '/maternal',
+  getParentRoute: () => LguAnalyticsRoute,
+} as any)
+const LguAnalyticsNcdRoute = LguAnalyticsNcdRouteImport.update({
+  id: '/ncd',
+  path: '/ncd',
+  getParentRoute: () => LguAnalyticsRoute,
+} as any)
+const LguAnalyticsPopulationRoute = LguAnalyticsPopulationRouteImport.update({
+  id: '/population',
+  path: '/population',
+  getParentRoute: () => LguAnalyticsRoute,
+} as any)
+const LguAnalyticsTbRoute = LguAnalyticsTbRouteImport.update({
+  id: '/tb',
+  path: '/tb',
+  getParentRoute: () => LguAnalyticsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -74,7 +122,15 @@ export interface FileRoutesByFullPath {
   '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
+  '/lgu/analytics': typeof LguAnalyticsRouteWithChildren
   '/analytics/': typeof AnalyticsIndexRoute
+  '/lgu/analytics/executive': typeof LguAnalyticsExecutiveRoute
+  '/lgu/analytics/konsulta': typeof LguAnalyticsKonsultaRoute
+  '/lgu/analytics/maternal': typeof LguAnalyticsMaternalRoute
+  '/lgu/analytics/ncd': typeof LguAnalyticsNcdRoute
+  '/lgu/analytics/population': typeof LguAnalyticsPopulationRoute
+  '/lgu/analytics/tb': typeof LguAnalyticsTbRoute
+  '/lgu/analytics/': typeof LguAnalyticsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -85,6 +141,13 @@ export interface FileRoutesByTo {
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/analytics': typeof AnalyticsIndexRoute
+  '/lgu/analytics/executive': typeof LguAnalyticsExecutiveRoute
+  '/lgu/analytics/konsulta': typeof LguAnalyticsKonsultaRoute
+  '/lgu/analytics/maternal': typeof LguAnalyticsMaternalRoute
+  '/lgu/analytics/ncd': typeof LguAnalyticsNcdRoute
+  '/lgu/analytics/population': typeof LguAnalyticsPopulationRoute
+  '/lgu/analytics/tb': typeof LguAnalyticsTbRoute
+  '/lgu/analytics': typeof LguAnalyticsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -96,7 +159,15 @@ export interface FileRoutesById {
   '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
+  '/lgu/analytics': typeof LguAnalyticsRouteWithChildren
   '/analytics/': typeof AnalyticsIndexRoute
+  '/lgu/analytics/executive': typeof LguAnalyticsExecutiveRoute
+  '/lgu/analytics/konsulta': typeof LguAnalyticsKonsultaRoute
+  '/lgu/analytics/maternal': typeof LguAnalyticsMaternalRoute
+  '/lgu/analytics/ncd': typeof LguAnalyticsNcdRoute
+  '/lgu/analytics/population': typeof LguAnalyticsPopulationRoute
+  '/lgu/analytics/tb': typeof LguAnalyticsTbRoute
+  '/lgu/analytics/': typeof LguAnalyticsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -109,7 +180,15 @@ export interface FileRouteTypes {
     | '/analytics/laboratory'
     | '/analytics/quality'
     | '/analytics/revenue'
+    | '/lgu/analytics'
     | '/analytics/'
+    | '/lgu/analytics/executive'
+    | '/lgu/analytics/konsulta'
+    | '/lgu/analytics/maternal'
+    | '/lgu/analytics/ncd'
+    | '/lgu/analytics/population'
+    | '/lgu/analytics/tb'
+    | '/lgu/analytics/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -120,6 +199,13 @@ export interface FileRouteTypes {
     | '/analytics/quality'
     | '/analytics/revenue'
     | '/analytics'
+    | '/lgu/analytics/executive'
+    | '/lgu/analytics/konsulta'
+    | '/lgu/analytics/maternal'
+    | '/lgu/analytics/ncd'
+    | '/lgu/analytics/population'
+    | '/lgu/analytics/tb'
+    | '/lgu/analytics'
   id:
     | '__root__'
     | '/'
@@ -130,12 +216,21 @@ export interface FileRouteTypes {
     | '/analytics/laboratory'
     | '/analytics/quality'
     | '/analytics/revenue'
+    | '/lgu/analytics'
     | '/analytics/'
+    | '/lgu/analytics/executive'
+    | '/lgu/analytics/konsulta'
+    | '/lgu/analytics/maternal'
+    | '/lgu/analytics/ncd'
+    | '/lgu/analytics/population'
+    | '/lgu/analytics/tb'
+    | '/lgu/analytics/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnalyticsRoute: typeof AnalyticsRouteWithChildren
+  LguAnalyticsRoute: typeof LguAnalyticsRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -203,6 +298,62 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnalyticsRevenueRouteImport
       parentRoute: typeof AnalyticsRoute
     }
+    '/lgu/analytics': {
+      id: '/lgu/analytics'
+      path: '/lgu/analytics'
+      fullPath: '/lgu/analytics'
+      preLoaderRoute: typeof LguAnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lgu/analytics/': {
+      id: '/lgu/analytics/'
+      path: '/'
+      fullPath: '/lgu/analytics/'
+      preLoaderRoute: typeof LguAnalyticsIndexRouteImport
+      parentRoute: typeof LguAnalyticsRoute
+    }
+    '/lgu/analytics/executive': {
+      id: '/lgu/analytics/executive'
+      path: '/executive'
+      fullPath: '/lgu/analytics/executive'
+      preLoaderRoute: typeof LguAnalyticsExecutiveRouteImport
+      parentRoute: typeof LguAnalyticsRoute
+    }
+    '/lgu/analytics/konsulta': {
+      id: '/lgu/analytics/konsulta'
+      path: '/konsulta'
+      fullPath: '/lgu/analytics/konsulta'
+      preLoaderRoute: typeof LguAnalyticsKonsultaRouteImport
+      parentRoute: typeof LguAnalyticsRoute
+    }
+    '/lgu/analytics/maternal': {
+      id: '/lgu/analytics/maternal'
+      path: '/maternal'
+      fullPath: '/lgu/analytics/maternal'
+      preLoaderRoute: typeof LguAnalyticsMaternalRouteImport
+      parentRoute: typeof LguAnalyticsRoute
+    }
+    '/lgu/analytics/ncd': {
+      id: '/lgu/analytics/ncd'
+      path: '/ncd'
+      fullPath: '/lgu/analytics/ncd'
+      preLoaderRoute: typeof LguAnalyticsNcdRouteImport
+      parentRoute: typeof LguAnalyticsRoute
+    }
+    '/lgu/analytics/population': {
+      id: '/lgu/analytics/population'
+      path: '/population'
+      fullPath: '/lgu/analytics/population'
+      preLoaderRoute: typeof LguAnalyticsPopulationRouteImport
+      parentRoute: typeof LguAnalyticsRoute
+    }
+    '/lgu/analytics/tb': {
+      id: '/lgu/analytics/tb'
+      path: '/tb'
+      fullPath: '/lgu/analytics/tb'
+      preLoaderRoute: typeof LguAnalyticsTbRouteImport
+      parentRoute: typeof LguAnalyticsRoute
+    }
   }
 }
 
@@ -230,10 +381,45 @@ const AnalyticsRouteWithChildren = AnalyticsRoute._addFileChildren(
   AnalyticsRouteChildren,
 )
 
+interface LguAnalyticsRouteChildren {
+  LguAnalyticsExecutiveRoute: typeof LguAnalyticsExecutiveRoute
+  LguAnalyticsKonsultaRoute: typeof LguAnalyticsKonsultaRoute
+  LguAnalyticsMaternalRoute: typeof LguAnalyticsMaternalRoute
+  LguAnalyticsNcdRoute: typeof LguAnalyticsNcdRoute
+  LguAnalyticsPopulationRoute: typeof LguAnalyticsPopulationRoute
+  LguAnalyticsTbRoute: typeof LguAnalyticsTbRoute
+  LguAnalyticsIndexRoute: typeof LguAnalyticsIndexRoute
+}
+
+const LguAnalyticsRouteChildren: LguAnalyticsRouteChildren = {
+  LguAnalyticsExecutiveRoute: LguAnalyticsExecutiveRoute,
+  LguAnalyticsKonsultaRoute: LguAnalyticsKonsultaRoute,
+  LguAnalyticsMaternalRoute: LguAnalyticsMaternalRoute,
+  LguAnalyticsNcdRoute: LguAnalyticsNcdRoute,
+  LguAnalyticsPopulationRoute: LguAnalyticsPopulationRoute,
+  LguAnalyticsTbRoute: LguAnalyticsTbRoute,
+  LguAnalyticsIndexRoute: LguAnalyticsIndexRoute,
+}
+
+const LguAnalyticsRouteWithChildren = LguAnalyticsRoute._addFileChildren(
+  LguAnalyticsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnalyticsRoute: AnalyticsRouteWithChildren,
+  LguAnalyticsRoute: LguAnalyticsRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
