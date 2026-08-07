@@ -341,7 +341,7 @@ function ClaimsPage() {
               nameKey="name"
               stroke="#fff"
               onClick={(entry) => setDrill({ kind: "caseType", name: (entry as unknown as { name: string }).name })}
-              content={<TreemapCell maxValue={maxTreemapValue} /> as unknown as React.ReactElement}
+              content={React.createElement(TreemapCell, { maxValue: maxTreemapValue })}
             >
               <Tooltip
                 contentStyle={{ fontSize: 12, borderRadius: 8 }}
@@ -488,17 +488,17 @@ interface DenialReasonRowLike {
   valueAtRisk: number;
 }
 
-function TreemapCell(props: unknown) {
-  const p = props as {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    name?: string;
-    size?: number;
-    avgValue?: number;
-    maxValue: number;
-  };
+function TreemapCell(props: {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  name?: string;
+  size?: number;
+  avgValue?: number;
+  maxValue: number;
+}) {
+  const p = { x: 0, y: 0, width: 0, height: 0, ...props };
   if (p.width <= 0 || p.height <= 0) return null;
   const intensity = Math.min(1, (p.avgValue ?? 0) / (p.maxValue || 1));
   const from = [174, 182, 235];
