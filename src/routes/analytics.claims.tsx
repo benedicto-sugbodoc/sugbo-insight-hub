@@ -5,7 +5,6 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  Legend,
   Line,
   LineChart,
   ReferenceLine,
@@ -21,7 +20,6 @@ import {
 import { createFileRoute } from "@tanstack/react-router";
 import { ArrowRight, Banknote, ClipboardCheck, ClipboardX, FileWarning, Hourglass, Timer } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -341,7 +339,7 @@ function ClaimsPage() {
               nameKey="name"
               stroke="#fff"
               onClick={(entry) => setDrill({ kind: "caseType", name: (entry as unknown as { name: string }).name })}
-              content={React.createElement(TreemapCell, { maxValue: maxTreemapValue })}
+              content={React.createElement(TreemapCell as React.FC, { maxValue: maxTreemapValue } as never)}
             >
               <Tooltip
                 contentStyle={{ fontSize: 12, borderRadius: 8 }}

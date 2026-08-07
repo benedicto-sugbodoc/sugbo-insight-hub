@@ -324,7 +324,7 @@ function ClinicalPage() {
               }))}
               dataKey="size"
               stroke="#fff"
-              content={renderProcedureCell((name: string) => setDrill({ kind: "procedure", name }))}
+              content={renderProcedureCell((name: string) => setDrill({ kind: "procedure", name })) as unknown as React.ReactElement}
             />
           </ResponsiveContainer>
         </PanelCard>
