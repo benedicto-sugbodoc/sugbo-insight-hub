@@ -8,7 +8,6 @@ import {
   Bed,
   Building2,
   Calendar,
-  CheckCircle2,
   ChevronRight,
   Clock,
   FileText,
@@ -20,7 +19,6 @@ import {
   TrendingDown,
   TrendingUp,
   Users,
-  XCircle,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -63,11 +61,9 @@ import {
   BarChart,
   CartesianGrid,
   ComposedChart,
-  Legend,
   Line,
   LineChart,
   ReferenceLine,
-  ResponsiveContainer,
   XAxis,
   YAxis,
 } from "recharts";
