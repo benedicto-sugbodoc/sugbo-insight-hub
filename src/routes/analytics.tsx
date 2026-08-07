@@ -1,5 +1,15 @@
 import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { Activity, FlaskConical, HeartPulse, LineChart, Receipt, ShieldCheck } from "lucide-react";
+import {
+  Activity,
+  Bell,
+  Clock,
+  FlaskConical,
+  HeartPulse,
+  LineChart,
+  Receipt,
+  ShieldCheck,
+  Users,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -31,6 +41,9 @@ const subSections = [
   { to: "/analytics/claims", label: "Claims", icon: ShieldCheck },
   { to: "/analytics/quality", label: "Quality", icon: Activity },
   { to: "/analytics/laboratory", label: "Lab", icon: FlaskConical },
+  { to: "/analytics/cohorts", label: "Cohort Builder", icon: Users },
+  { to: "/analytics/patterns", label: "Patterns", icon: Clock },
+  { to: "/analytics/alerts", label: "Alerts", icon: Bell },
 ] as const;
 
 function AnalyticsLayout() {

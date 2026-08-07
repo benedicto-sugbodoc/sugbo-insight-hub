@@ -2,6 +2,9 @@ import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-r
 import {
   Activity,
   Baby,
+  Bell,
+  Clock,
+  Filter,
   HeartHandshake,
   LineChart,
   Stethoscope,
@@ -39,6 +42,9 @@ const subSections = [
   { to: "/lgu/analytics/tb", label: "TB-DOTS", icon: Stethoscope },
   { to: "/lgu/analytics/konsulta", label: "Konsulta / PhilHealth", icon: Syringe },
   { to: "/lgu/analytics/population", label: "Population Health", icon: Users },
+  { to: "/lgu/analytics/cohorts", label: "Cohort Builder", icon: Filter },
+  { to: "/lgu/analytics/patterns", label: "Patterns", icon: Clock },
+  { to: "/lgu/analytics/alerts", label: "Alerts", icon: Bell },
 ] as const;
 
 function LguAnalyticsLayout() {

@@ -13,10 +13,13 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as AnalyticsIndexRouteImport } from './routes/analytics.index'
+import { Route as AnalyticsAlertsRouteImport } from './routes/analytics.alerts'
 import { Route as AnalyticsClaimsRouteImport } from './routes/analytics.claims'
 import { Route as AnalyticsClinicalRouteImport } from './routes/analytics.clinical'
+import { Route as AnalyticsCohortsRouteImport } from './routes/analytics.cohorts'
 import { Route as AnalyticsExecutiveRouteImport } from './routes/analytics.executive'
 import { Route as AnalyticsLaboratoryRouteImport } from './routes/analytics.laboratory'
+import { Route as AnalyticsPatternsRouteImport } from './routes/analytics.patterns'
 import { Route as AnalyticsQualityRouteImport } from './routes/analytics.quality'
 import { Route as AnalyticsRevenueRouteImport } from './routes/analytics.revenue'
 import { Route as LguAnalyticsRouteImport } from './routes/lgu.analytics'
@@ -24,10 +27,13 @@ import { Route as LguReportsRouteImport } from './routes/lgu.reports'
 import { Route as ReportsIndexRouteImport } from './routes/reports.index'
 import { Route as ReportsReportIdRouteImport } from './routes/reports.$reportId'
 import { Route as LguAnalyticsIndexRouteImport } from './routes/lgu.analytics.index'
+import { Route as LguAnalyticsAlertsRouteImport } from './routes/lgu.analytics.alerts'
+import { Route as LguAnalyticsCohortsRouteImport } from './routes/lgu.analytics.cohorts'
 import { Route as LguAnalyticsExecutiveRouteImport } from './routes/lgu.analytics.executive'
 import { Route as LguAnalyticsKonsultaRouteImport } from './routes/lgu.analytics.konsulta'
 import { Route as LguAnalyticsMaternalRouteImport } from './routes/lgu.analytics.maternal'
 import { Route as LguAnalyticsNcdRouteImport } from './routes/lgu.analytics.ncd'
+import { Route as LguAnalyticsPatternsRouteImport } from './routes/lgu.analytics.patterns'
 import { Route as LguAnalyticsPopulationRouteImport } from './routes/lgu.analytics.population'
 import { Route as LguAnalyticsTbRouteImport } from './routes/lgu.analytics.tb'
 import { Route as LguReportsIndexRouteImport } from './routes/lgu.reports.index'
@@ -53,6 +59,11 @@ const AnalyticsIndexRoute = AnalyticsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AnalyticsRoute,
 } as any)
+const AnalyticsAlertsRoute = AnalyticsAlertsRouteImport.update({
+  id: '/alerts',
+  path: '/alerts',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
 const AnalyticsClaimsRoute = AnalyticsClaimsRouteImport.update({
   id: '/claims',
   path: '/claims',
@@ -63,6 +74,11 @@ const AnalyticsClinicalRoute = AnalyticsClinicalRouteImport.update({
   path: '/clinical',
   getParentRoute: () => AnalyticsRoute,
 } as any)
+const AnalyticsCohortsRoute = AnalyticsCohortsRouteImport.update({
+  id: '/cohorts',
+  path: '/cohorts',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
 const AnalyticsExecutiveRoute = AnalyticsExecutiveRouteImport.update({
   id: '/executive',
   path: '/executive',
@@ -71,6 +87,11 @@ const AnalyticsExecutiveRoute = AnalyticsExecutiveRouteImport.update({
 const AnalyticsLaboratoryRoute = AnalyticsLaboratoryRouteImport.update({
   id: '/laboratory',
   path: '/laboratory',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
+const AnalyticsPatternsRoute = AnalyticsPatternsRouteImport.update({
+  id: '/patterns',
+  path: '/patterns',
   getParentRoute: () => AnalyticsRoute,
 } as any)
 const AnalyticsQualityRoute = AnalyticsQualityRouteImport.update({
@@ -108,6 +129,16 @@ const LguAnalyticsIndexRoute = LguAnalyticsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => LguAnalyticsRoute,
 } as any)
+const LguAnalyticsAlertsRoute = LguAnalyticsAlertsRouteImport.update({
+  id: '/alerts',
+  path: '/alerts',
+  getParentRoute: () => LguAnalyticsRoute,
+} as any)
+const LguAnalyticsCohortsRoute = LguAnalyticsCohortsRouteImport.update({
+  id: '/cohorts',
+  path: '/cohorts',
+  getParentRoute: () => LguAnalyticsRoute,
+} as any)
 const LguAnalyticsExecutiveRoute = LguAnalyticsExecutiveRouteImport.update({
   id: '/executive',
   path: '/executive',
@@ -126,6 +157,11 @@ const LguAnalyticsMaternalRoute = LguAnalyticsMaternalRouteImport.update({
 const LguAnalyticsNcdRoute = LguAnalyticsNcdRouteImport.update({
   id: '/ncd',
   path: '/ncd',
+  getParentRoute: () => LguAnalyticsRoute,
+} as any)
+const LguAnalyticsPatternsRoute = LguAnalyticsPatternsRouteImport.update({
+  id: '/patterns',
+  path: '/patterns',
   getParentRoute: () => LguAnalyticsRoute,
 } as any)
 const LguAnalyticsPopulationRoute = LguAnalyticsPopulationRouteImport.update({
@@ -153,10 +189,13 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRouteWithChildren
   '/reports': typeof ReportsRouteWithChildren
+  '/analytics/alerts': typeof AnalyticsAlertsRoute
   '/analytics/claims': typeof AnalyticsClaimsRoute
   '/analytics/clinical': typeof AnalyticsClinicalRoute
+  '/analytics/cohorts': typeof AnalyticsCohortsRoute
   '/analytics/executive': typeof AnalyticsExecutiveRoute
   '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
+  '/analytics/patterns': typeof AnalyticsPatternsRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/lgu/analytics': typeof LguAnalyticsRouteWithChildren
@@ -164,10 +203,13 @@ export interface FileRoutesByFullPath {
   '/reports/$reportId': typeof ReportsReportIdRoute
   '/analytics/': typeof AnalyticsIndexRoute
   '/reports/': typeof ReportsIndexRoute
+  '/lgu/analytics/alerts': typeof LguAnalyticsAlertsRoute
+  '/lgu/analytics/cohorts': typeof LguAnalyticsCohortsRoute
   '/lgu/analytics/executive': typeof LguAnalyticsExecutiveRoute
   '/lgu/analytics/konsulta': typeof LguAnalyticsKonsultaRoute
   '/lgu/analytics/maternal': typeof LguAnalyticsMaternalRoute
   '/lgu/analytics/ncd': typeof LguAnalyticsNcdRoute
+  '/lgu/analytics/patterns': typeof LguAnalyticsPatternsRoute
   '/lgu/analytics/population': typeof LguAnalyticsPopulationRoute
   '/lgu/analytics/tb': typeof LguAnalyticsTbRoute
   '/lgu/reports/$reportId': typeof LguReportsReportIdRoute
@@ -176,19 +218,25 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/analytics/alerts': typeof AnalyticsAlertsRoute
   '/analytics/claims': typeof AnalyticsClaimsRoute
   '/analytics/clinical': typeof AnalyticsClinicalRoute
+  '/analytics/cohorts': typeof AnalyticsCohortsRoute
   '/analytics/executive': typeof AnalyticsExecutiveRoute
   '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
+  '/analytics/patterns': typeof AnalyticsPatternsRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/reports/$reportId': typeof ReportsReportIdRoute
   '/analytics': typeof AnalyticsIndexRoute
   '/reports': typeof ReportsIndexRoute
+  '/lgu/analytics/alerts': typeof LguAnalyticsAlertsRoute
+  '/lgu/analytics/cohorts': typeof LguAnalyticsCohortsRoute
   '/lgu/analytics/executive': typeof LguAnalyticsExecutiveRoute
   '/lgu/analytics/konsulta': typeof LguAnalyticsKonsultaRoute
   '/lgu/analytics/maternal': typeof LguAnalyticsMaternalRoute
   '/lgu/analytics/ncd': typeof LguAnalyticsNcdRoute
+  '/lgu/analytics/patterns': typeof LguAnalyticsPatternsRoute
   '/lgu/analytics/population': typeof LguAnalyticsPopulationRoute
   '/lgu/analytics/tb': typeof LguAnalyticsTbRoute
   '/lgu/reports/$reportId': typeof LguReportsReportIdRoute
@@ -200,10 +248,13 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRouteWithChildren
   '/reports': typeof ReportsRouteWithChildren
+  '/analytics/alerts': typeof AnalyticsAlertsRoute
   '/analytics/claims': typeof AnalyticsClaimsRoute
   '/analytics/clinical': typeof AnalyticsClinicalRoute
+  '/analytics/cohorts': typeof AnalyticsCohortsRoute
   '/analytics/executive': typeof AnalyticsExecutiveRoute
   '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
+  '/analytics/patterns': typeof AnalyticsPatternsRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/lgu/analytics': typeof LguAnalyticsRouteWithChildren
@@ -211,10 +262,13 @@ export interface FileRoutesById {
   '/reports/$reportId': typeof ReportsReportIdRoute
   '/analytics/': typeof AnalyticsIndexRoute
   '/reports/': typeof ReportsIndexRoute
+  '/lgu/analytics/alerts': typeof LguAnalyticsAlertsRoute
+  '/lgu/analytics/cohorts': typeof LguAnalyticsCohortsRoute
   '/lgu/analytics/executive': typeof LguAnalyticsExecutiveRoute
   '/lgu/analytics/konsulta': typeof LguAnalyticsKonsultaRoute
   '/lgu/analytics/maternal': typeof LguAnalyticsMaternalRoute
   '/lgu/analytics/ncd': typeof LguAnalyticsNcdRoute
+  '/lgu/analytics/patterns': typeof LguAnalyticsPatternsRoute
   '/lgu/analytics/population': typeof LguAnalyticsPopulationRoute
   '/lgu/analytics/tb': typeof LguAnalyticsTbRoute
   '/lgu/reports/$reportId': typeof LguReportsReportIdRoute
@@ -227,10 +281,13 @@ export interface FileRouteTypes {
     | '/'
     | '/analytics'
     | '/reports'
+    | '/analytics/alerts'
     | '/analytics/claims'
     | '/analytics/clinical'
+    | '/analytics/cohorts'
     | '/analytics/executive'
     | '/analytics/laboratory'
+    | '/analytics/patterns'
     | '/analytics/quality'
     | '/analytics/revenue'
     | '/lgu/analytics'
@@ -238,10 +295,13 @@ export interface FileRouteTypes {
     | '/reports/$reportId'
     | '/analytics/'
     | '/reports/'
+    | '/lgu/analytics/alerts'
+    | '/lgu/analytics/cohorts'
     | '/lgu/analytics/executive'
     | '/lgu/analytics/konsulta'
     | '/lgu/analytics/maternal'
     | '/lgu/analytics/ncd'
+    | '/lgu/analytics/patterns'
     | '/lgu/analytics/population'
     | '/lgu/analytics/tb'
     | '/lgu/reports/$reportId'
@@ -250,19 +310,25 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/analytics/alerts'
     | '/analytics/claims'
     | '/analytics/clinical'
+    | '/analytics/cohorts'
     | '/analytics/executive'
     | '/analytics/laboratory'
+    | '/analytics/patterns'
     | '/analytics/quality'
     | '/analytics/revenue'
     | '/reports/$reportId'
     | '/analytics'
     | '/reports'
+    | '/lgu/analytics/alerts'
+    | '/lgu/analytics/cohorts'
     | '/lgu/analytics/executive'
     | '/lgu/analytics/konsulta'
     | '/lgu/analytics/maternal'
     | '/lgu/analytics/ncd'
+    | '/lgu/analytics/patterns'
     | '/lgu/analytics/population'
     | '/lgu/analytics/tb'
     | '/lgu/reports/$reportId'
@@ -273,10 +339,13 @@ export interface FileRouteTypes {
     | '/'
     | '/analytics'
     | '/reports'
+    | '/analytics/alerts'
     | '/analytics/claims'
     | '/analytics/clinical'
+    | '/analytics/cohorts'
     | '/analytics/executive'
     | '/analytics/laboratory'
+    | '/analytics/patterns'
     | '/analytics/quality'
     | '/analytics/revenue'
     | '/lgu/analytics'
@@ -284,10 +353,13 @@ export interface FileRouteTypes {
     | '/reports/$reportId'
     | '/analytics/'
     | '/reports/'
+    | '/lgu/analytics/alerts'
+    | '/lgu/analytics/cohorts'
     | '/lgu/analytics/executive'
     | '/lgu/analytics/konsulta'
     | '/lgu/analytics/maternal'
     | '/lgu/analytics/ncd'
+    | '/lgu/analytics/patterns'
     | '/lgu/analytics/population'
     | '/lgu/analytics/tb'
     | '/lgu/reports/$reportId'
@@ -333,6 +405,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnalyticsIndexRouteImport
       parentRoute: typeof AnalyticsRoute
     }
+    '/analytics/alerts': {
+      id: '/analytics/alerts'
+      path: '/alerts'
+      fullPath: '/analytics/alerts'
+      preLoaderRoute: typeof AnalyticsAlertsRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
     '/analytics/claims': {
       id: '/analytics/claims'
       path: '/claims'
@@ -347,6 +426,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnalyticsClinicalRouteImport
       parentRoute: typeof AnalyticsRoute
     }
+    '/analytics/cohorts': {
+      id: '/analytics/cohorts'
+      path: '/cohorts'
+      fullPath: '/analytics/cohorts'
+      preLoaderRoute: typeof AnalyticsCohortsRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
     '/analytics/executive': {
       id: '/analytics/executive'
       path: '/executive'
@@ -359,6 +445,13 @@ declare module '@tanstack/react-router' {
       path: '/laboratory'
       fullPath: '/analytics/laboratory'
       preLoaderRoute: typeof AnalyticsLaboratoryRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
+    '/analytics/patterns': {
+      id: '/analytics/patterns'
+      path: '/patterns'
+      fullPath: '/analytics/patterns'
+      preLoaderRoute: typeof AnalyticsPatternsRouteImport
       parentRoute: typeof AnalyticsRoute
     }
     '/analytics/quality': {
@@ -410,6 +503,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LguAnalyticsIndexRouteImport
       parentRoute: typeof LguAnalyticsRoute
     }
+    '/lgu/analytics/alerts': {
+      id: '/lgu/analytics/alerts'
+      path: '/alerts'
+      fullPath: '/lgu/analytics/alerts'
+      preLoaderRoute: typeof LguAnalyticsAlertsRouteImport
+      parentRoute: typeof LguAnalyticsRoute
+    }
+    '/lgu/analytics/cohorts': {
+      id: '/lgu/analytics/cohorts'
+      path: '/cohorts'
+      fullPath: '/lgu/analytics/cohorts'
+      preLoaderRoute: typeof LguAnalyticsCohortsRouteImport
+      parentRoute: typeof LguAnalyticsRoute
+    }
     '/lgu/analytics/executive': {
       id: '/lgu/analytics/executive'
       path: '/executive'
@@ -436,6 +543,13 @@ declare module '@tanstack/react-router' {
       path: '/ncd'
       fullPath: '/lgu/analytics/ncd'
       preLoaderRoute: typeof LguAnalyticsNcdRouteImport
+      parentRoute: typeof LguAnalyticsRoute
+    }
+    '/lgu/analytics/patterns': {
+      id: '/lgu/analytics/patterns'
+      path: '/patterns'
+      fullPath: '/lgu/analytics/patterns'
+      preLoaderRoute: typeof LguAnalyticsPatternsRouteImport
       parentRoute: typeof LguAnalyticsRoute
     }
     '/lgu/analytics/population': {
@@ -470,20 +584,26 @@ declare module '@tanstack/react-router' {
 }
 
 interface AnalyticsRouteChildren {
+  AnalyticsAlertsRoute: typeof AnalyticsAlertsRoute
   AnalyticsClaimsRoute: typeof AnalyticsClaimsRoute
   AnalyticsClinicalRoute: typeof AnalyticsClinicalRoute
+  AnalyticsCohortsRoute: typeof AnalyticsCohortsRoute
   AnalyticsExecutiveRoute: typeof AnalyticsExecutiveRoute
   AnalyticsLaboratoryRoute: typeof AnalyticsLaboratoryRoute
+  AnalyticsPatternsRoute: typeof AnalyticsPatternsRoute
   AnalyticsQualityRoute: typeof AnalyticsQualityRoute
   AnalyticsRevenueRoute: typeof AnalyticsRevenueRoute
   AnalyticsIndexRoute: typeof AnalyticsIndexRoute
 }
 
 const AnalyticsRouteChildren: AnalyticsRouteChildren = {
+  AnalyticsAlertsRoute: AnalyticsAlertsRoute,
   AnalyticsClaimsRoute: AnalyticsClaimsRoute,
   AnalyticsClinicalRoute: AnalyticsClinicalRoute,
+  AnalyticsCohortsRoute: AnalyticsCohortsRoute,
   AnalyticsExecutiveRoute: AnalyticsExecutiveRoute,
   AnalyticsLaboratoryRoute: AnalyticsLaboratoryRoute,
+  AnalyticsPatternsRoute: AnalyticsPatternsRoute,
   AnalyticsQualityRoute: AnalyticsQualityRoute,
   AnalyticsRevenueRoute: AnalyticsRevenueRoute,
   AnalyticsIndexRoute: AnalyticsIndexRoute,
@@ -507,20 +627,26 @@ const ReportsRouteWithChildren =
   ReportsRoute._addFileChildren(ReportsRouteChildren)
 
 interface LguAnalyticsRouteChildren {
+  LguAnalyticsAlertsRoute: typeof LguAnalyticsAlertsRoute
+  LguAnalyticsCohortsRoute: typeof LguAnalyticsCohortsRoute
   LguAnalyticsExecutiveRoute: typeof LguAnalyticsExecutiveRoute
   LguAnalyticsKonsultaRoute: typeof LguAnalyticsKonsultaRoute
   LguAnalyticsMaternalRoute: typeof LguAnalyticsMaternalRoute
   LguAnalyticsNcdRoute: typeof LguAnalyticsNcdRoute
+  LguAnalyticsPatternsRoute: typeof LguAnalyticsPatternsRoute
   LguAnalyticsPopulationRoute: typeof LguAnalyticsPopulationRoute
   LguAnalyticsTbRoute: typeof LguAnalyticsTbRoute
   LguAnalyticsIndexRoute: typeof LguAnalyticsIndexRoute
 }
 
 const LguAnalyticsRouteChildren: LguAnalyticsRouteChildren = {
+  LguAnalyticsAlertsRoute: LguAnalyticsAlertsRoute,
+  LguAnalyticsCohortsRoute: LguAnalyticsCohortsRoute,
   LguAnalyticsExecutiveRoute: LguAnalyticsExecutiveRoute,
   LguAnalyticsKonsultaRoute: LguAnalyticsKonsultaRoute,
   LguAnalyticsMaternalRoute: LguAnalyticsMaternalRoute,
   LguAnalyticsNcdRoute: LguAnalyticsNcdRoute,
+  LguAnalyticsPatternsRoute: LguAnalyticsPatternsRoute,
   LguAnalyticsPopulationRoute: LguAnalyticsPopulationRoute,
   LguAnalyticsTbRoute: LguAnalyticsTbRoute,
   LguAnalyticsIndexRoute: LguAnalyticsIndexRoute,

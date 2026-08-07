@@ -2,11 +2,12 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Area,
-  AreaChart,
   Bar,
   BarChart,
+  Brush,
   CartesianGrid,
   Cell,
+  ComposedChart,
   Legend,
   Line,
   LineChart,
@@ -42,10 +43,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   BulletRow,
-  DrillDrawer,
   Gauge,
   KpiStrip,
   LegendDot,
@@ -64,6 +63,24 @@ import {
 } from "@/components/analytics/shared";
 import { fetchExecutiveData, type ExecutiveData } from "@/lib/analytics/executive.mock";
 import { cn } from "@/lib/utils";
+import type { ReportColumn } from "@/components/reports/types";
+import {
+  AddAnnotationButton,
+  AnnotationList,
+  ChainLinkBadge,
+  ChartDrillDrawer,
+  CompareToggle,
+  GlobalFilterBar,
+  InteractiveChartCard,
+  RichTooltip,
+  RoleSwitcher,
+  ZoomControls,
+  useAnnotations,
+  useMockRole,
+  useUrlSyncedFilters,
+  type RichTooltipPayloadEntry,
+  type ZoomPreset,
+} from "@/components/analytics/interactive";
 
 export const Route = createFileRoute("/analytics/executive")({
   head: () => ({
@@ -107,6 +124,24 @@ function alosStatus(v: number): MetricStatus {
   return "danger";
 }
 
+const zoomWindowSize: Record<ZoomPreset, number> = { "1M": 1, "3M": 3, "6M": 6, "1Y": 12, All: 12 };
+
+function reportHrefForModule(mod: string): string | undefined {
+  switch (mod) {
+    case "Claims":
+    case "Billing":
+      return "/reports/philhealth-claims-register";
+    case "Laboratory":
+      return "/reports/laboratory-workload";
+    case "Inpatient":
+      return "/reports/discharge-clearance-audit";
+    case "Census":
+      return "/reports/daily-census";
+    default:
+      return undefined;
+  }
+}
+
 function ExecutivePage() {
   const { data, isLoading } = useQuery({
     queryKey: ["analytics", "executive"],
@@ -119,11 +154,114 @@ function ExecutivePage() {
     emergency: true,
     daySurgery: true,
   });
-  const [range, setRange] = React.useState("12");
+  const [role, setRole] = useMockRole();
+  const {
+    values: filterValues,
+    setValues: setFilterValues,
+    dateRange,
+    setDateRange,
+  } = useUrlSyncedFilters(["department", "physician"]);
+  const [zoomPreset, setZoomPreset] = React.useState<ZoomPreset>("1Y");
+  const [zoomOffset, setZoomOffset] = React.useState(0);
+  const [compareKey, setCompareKey] = React.useState<string | null>(null);
+  const [payerChain, setPayerChain] = React.useState<string | null>(null);
+  const { annotations, addAnnotation, removeAnnotation } = useAnnotations(
+    "hospital-executive-volume",
+  );
 
   if (isLoading || !data) return <ExecutiveSkeleton />;
 
-  const volume = data.volume.slice(-Number(range));
+  const departmentOptions = Array.from(new Set(data.admissions.rows.map((r) => r.department))).map(
+    (d) => ({
+      label: d,
+      value: d,
+    }),
+  );
+  const physicianOptions = Array.from(new Set(data.admissions.rows.map((r) => r.physician))).map(
+    (p) => ({
+      label: p,
+      value: p,
+    }),
+  );
+  const activeDept =
+    filterValues["department"] && filterValues["department"] !== "all"
+      ? filterValues["department"]
+      : null;
+  const activePhysician =
+    filterValues["physician"] && filterValues["physician"] !== "all"
+      ? filterValues["physician"]
+      : null;
+  const filteredAdmissions = data.admissions.rows.filter(
+    (r) =>
+      (!activeDept || r.department === activeDept) &&
+      (!activePhysician || r.physician === activePhysician),
+  );
+  const sampleFiltered = Boolean(activeDept || activePhysician);
+  const filteredTopDiagnoses = sampleFiltered
+    ? data.topDiagnoses
+        .map((dx) => ({
+          ...dx,
+          count: filteredAdmissions.filter((r) => r.icd10 === dx.code).length,
+        }))
+        .filter((dx) => dx.count > 0)
+        .sort((a, b) => b.count - a.count)
+    : data.topDiagnoses;
+
+  const avgInpatient = data.volume.reduce((s, v) => s + v.inpatient, 0) / data.volume.length;
+  const budgetTarget = Math.round(avgInpatient * 1.08);
+  const enrichedVolume = data.volume.map((v, i, arr) => ({
+    ...v,
+    comparePriorPeriod: i > 0 ? arr[i - 1]!.inpatient : v.inpatient,
+    compareBudget: budgetTarget,
+  }));
+  const windowSize = Math.min(zoomWindowSize[zoomPreset], enrichedVolume.length);
+  const maxOffset = enrichedVolume.length - windowSize;
+  const clampedOffset = Math.min(Math.max(zoomOffset, 0), maxOffset);
+  const volume = enrichedVolume.slice(
+    enrichedVolume.length - windowSize - clampedOffset,
+    enrichedVolume.length - clampedOffset,
+  );
+  const isZoomed = windowSize < enrichedVolume.length || clampedOffset > 0;
+  const compareOptions = [
+    { key: "priorPeriod", label: "Prior Period" },
+    { key: "priorYear", label: "Same Period Last Year" },
+    { key: "budget", label: "Budget" },
+  ];
+  const volumeTableColumns: ReportColumn<(typeof volume)[number]>[] = [
+    { key: "month", header: "Month" },
+    { key: "inpatient", header: "Inpatient", align: "right" },
+    { key: "opd", header: "OPD", align: "right" },
+    { key: "emergency", header: "Emergency", align: "right" },
+    { key: "daySurgery", header: "Day Surgery", align: "right" },
+  ];
+  const diagnosisTableColumns: ReportColumn<ExecutiveData["topDiagnoses"][number]>[] = [
+    { key: "code", header: "ICD-10" },
+    { key: "description", header: "Diagnosis" },
+    { key: "count", header: "Patients", align: "right" },
+    {
+      key: "caseRate",
+      header: "Case Rate",
+      align: "right",
+      render: (r) => php(r.caseRate, { compact: true }),
+    },
+    { key: "avgLos", header: "Avg LOS", align: "right", render: (r) => `${r.avgLos.toFixed(1)}d` },
+  ];
+  const claimsTableColumns: ReportColumn<ExecutiveData["claims"]["statuses"][number]>[] = [
+    { key: "status", header: "Status" },
+    { key: "count", header: "Claims", align: "right" },
+    {
+      key: "value",
+      header: "Value",
+      align: "right",
+      render: (r) => php(r.value, { compact: true }),
+    },
+  ];
+  const labTableColumns: ReportColumn<ExecutiveData["lab"]["byCategory"][number]>[] = [
+    { key: "category", header: "Category" },
+    { key: "compliance", header: "Compliance", align: "right", render: (r) => pct(r.compliance) },
+    { key: "target", header: "Target", align: "right", render: (r) => pct(r.target) },
+    { key: "median", header: "Median TAT", align: "right", render: (r) => `${r.median}h` },
+  ];
   const totalRevenue = data.revenue.byPayer.reduce((s, p) => s + p.amount, 0);
   const claimTotal = data.claims.statuses.reduce((s, c) => s + c.count, 0);
 
@@ -141,12 +279,29 @@ function ExecutivePage() {
             {data.period} · compared with {data.priorPeriod}
           </p>
         </div>
-        <StatusBadge tone="neutral">Hospital Administrator / Medical Director view</StatusBadge>
+        <div className="flex items-center gap-2">
+          <RoleSwitcher role={role} onChange={setRole} />
+          <StatusBadge tone="neutral">Hospital Administrator / Medical Director view</StatusBadge>
+        </div>
       </header>
+
+      <GlobalFilterBar
+        filters={[
+          { key: "department", label: "Department", options: departmentOptions },
+          { key: "physician", label: "Physician", options: physicianOptions },
+        ]}
+        values={filterValues}
+        onChange={(key, value) => setFilterValues((v) => ({ ...v, [key]: value }))}
+        dateRange={dateRange}
+        onDateRangeChange={setDateRange}
+      />
 
       {/* ZONE A — KPI strip */}
       <section className="space-y-3">
-        <SectionTitle title="Key performance indicators" description="Month to date, drill any card for detail." />
+        <SectionTitle
+          title="Key performance indicators"
+          description="Month to date, drill any card for detail."
+        />
         <KpiStrip>
           <MetricCard
             label="Total Admissions (MTD)"
@@ -198,7 +353,11 @@ function ExecutivePage() {
             value={pct(data.approvalRate.value)}
             delta={data.approvalRate.delta}
             status={
-              data.approvalRate.value >= 90 ? "good" : data.approvalRate.value >= 80 ? "warning" : "danger"
+              data.approvalRate.value >= 90
+                ? "good"
+                : data.approvalRate.value >= 80
+                  ? "warning"
+                  : "danger"
             }
             icon={ClipboardCheck}
             onClick={() => setDrill({ kind: "kpi", id: "approval" })}
@@ -208,7 +367,9 @@ function ExecutivePage() {
             value={pct(data.mortality.value)}
             delta={data.mortality.delta}
             invertDelta
-            status={data.mortality.value <= 2 ? "good" : data.mortality.value <= 4 ? "warning" : "danger"}
+            status={
+              data.mortality.value <= 2 ? "good" : data.mortality.value <= 4 ? "warning" : "danger"
+            }
             icon={HeartPulse}
             onClick={() => setDrill({ kind: "kpi", id: "mortality" })}
           />
@@ -226,17 +387,32 @@ function ExecutivePage() {
 
       {/* ZONE B — volume + financial */}
       <section className="grid gap-4 xl:grid-cols-2">
-        <PanelCard
+        <InteractiveChartCard
           title="Admission Volume Trend"
-          description="Encounter counts by class"
+          description="Encounter counts by class · drag the brush below the chart to zoom"
+          table={{ columns: volumeTableColumns, rows: volume }}
           action={
-            <Tabs value={range} onValueChange={setRange}>
-              <TabsList className="h-7">
-                <TabsTrigger value="3" className="text-xs">3M</TabsTrigger>
-                <TabsTrigger value="6" className="text-xs">6M</TabsTrigger>
-                <TabsTrigger value="12" className="text-xs">12M</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <ZoomControls
+                preset={zoomPreset}
+                onPresetChange={(p) => {
+                  setZoomPreset(p);
+                  setZoomOffset(0);
+                }}
+                onShift={(dir) => setZoomOffset((o) => o + dir)}
+                zoomed={isZoomed}
+                onReset={() => {
+                  setZoomPreset("1Y");
+                  setZoomOffset(0);
+                }}
+              />
+              <CompareToggle options={compareOptions} value={compareKey} onChange={setCompareKey} />
+              <AddAnnotationButton
+                role={role}
+                xOptions={volume.map((v) => v.month)}
+                onAdd={(x, note) => addAnnotation(x, note, "You (Admin)")}
+              />
+            </div>
           }
         >
           <div className="mb-2 flex flex-wrap gap-3">
@@ -251,14 +427,17 @@ function ExecutivePage() {
               <button
                 key={key}
                 onClick={() => setVisibleSeries((s) => ({ ...s, [key]: !s[key] }))}
-                className={cn("transition-opacity", visibleSeries[key] ? "opacity-100" : "opacity-35")}
+                className={cn(
+                  "transition-opacity",
+                  visibleSeries[key] ? "opacity-100" : "opacity-35",
+                )}
               >
                 <LegendDot color={color} label={label} />
               </button>
             ))}
           </div>
           <ResponsiveContainer width="100%" height={280}>
-            <AreaChart data={volume} margin={{ left: -12, right: 8, top: 8 }}>
+            <ComposedChart data={volume} margin={{ left: -12, right: 8, top: 8 }}>
               <defs>
                 {(
                   [
@@ -278,30 +457,112 @@ function ExecutivePage() {
               <XAxis dataKey="month" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
               <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={54} />
               <Tooltip
-                contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                formatter={(value: number, name: string, item) => {
-                  const prior = (item?.payload as { priorInpatient: number } | undefined)?.priorInpatient ?? 0;
-                  const change = name === "Inpatient" && prior ? ` (${(((value - prior) / prior) * 100).toFixed(1)}% vs LY)` : "";
-                  return [`${num(value)}${change}`, name];
-                }}
+                content={
+                  <RichTooltip
+                    valueFormatter={num}
+                    clickHint={false}
+                    getPriorChangePct={(row) => {
+                      const r = row as { inpatient?: number; priorInpatient?: number } | undefined;
+                      if (!r?.priorInpatient) return undefined;
+                      return (
+                        ((Number(r.inpatient ?? 0) - r.priorInpatient) / r.priorInpatient) * 100
+                      );
+                    }}
+                  />
+                }
               />
               {visibleSeries["inpatient"] ? (
-                <Area type="monotone" dataKey="inpatient" name="Inpatient" stroke={PALETTE.brand} fill="url(#g-inpatient)" strokeWidth={2} />
+                <Area
+                  type="monotone"
+                  dataKey="inpatient"
+                  name="Inpatient"
+                  stroke={PALETTE.brand}
+                  fill="url(#g-inpatient)"
+                  strokeWidth={2}
+                />
               ) : null}
               {visibleSeries["opd"] ? (
-                <Area type="monotone" dataKey="opd" name="OPD" stroke={PALETTE.philhealth} fill="url(#g-opd)" strokeWidth={2} />
+                <Area
+                  type="monotone"
+                  dataKey="opd"
+                  name="OPD"
+                  stroke={PALETTE.philhealth}
+                  fill="url(#g-opd)"
+                  strokeWidth={2}
+                />
               ) : null}
               {visibleSeries["emergency"] ? (
-                <Area type="monotone" dataKey="emergency" name="Emergency" stroke={PALETTE.danger} fill="url(#g-emergency)" strokeWidth={2} />
+                <Area
+                  type="monotone"
+                  dataKey="emergency"
+                  name="Emergency"
+                  stroke={PALETTE.danger}
+                  fill="url(#g-emergency)"
+                  strokeWidth={2}
+                />
               ) : null}
               {visibleSeries["daySurgery"] ? (
-                <Area type="monotone" dataKey="daySurgery" name="Day Surgery" stroke={PALETTE.success} fill="url(#g-daySurgery)" strokeWidth={2} />
+                <Area
+                  type="monotone"
+                  dataKey="daySurgery"
+                  name="Day Surgery"
+                  stroke={PALETTE.success}
+                  fill="url(#g-daySurgery)"
+                  strokeWidth={2}
+                />
               ) : null}
-            </AreaChart>
+              {compareKey === "priorPeriod" ? (
+                <Line
+                  type="monotone"
+                  dataKey="comparePriorPeriod"
+                  name="Prior Period"
+                  stroke="#8A8F98"
+                  strokeDasharray="4 3"
+                  strokeWidth={1.5}
+                  dot={false}
+                />
+              ) : null}
+              {compareKey === "priorYear" ? (
+                <Line
+                  type="monotone"
+                  dataKey="priorInpatient"
+                  name="Same Period Last Year"
+                  stroke="#8A8F98"
+                  strokeDasharray="4 3"
+                  strokeWidth={1.5}
+                  dot={false}
+                />
+              ) : null}
+              {compareKey === "budget" ? (
+                <Line
+                  type="monotone"
+                  dataKey="compareBudget"
+                  name="Budget Target"
+                  stroke="#E67E22"
+                  strokeDasharray="2 2"
+                  strokeWidth={1.5}
+                  dot={false}
+                />
+              ) : null}
+              <Brush
+                dataKey="month"
+                height={18}
+                travellerWidth={8}
+                stroke={PALETTE.brand}
+                className="text-[10px]"
+              />
+            </ComposedChart>
           </ResponsiveContainer>
-        </PanelCard>
+          <AnnotationList
+            annotations={annotations}
+            {...(role === "Admin" ? { onRemove: removeAnnotation } : {})}
+          />
+        </InteractiveChartCard>
 
-        <PanelCard title="Revenue Breakdown" description={`${data.period} · click a segment to drill down`}>
+        <PanelCard
+          title="Revenue Breakdown"
+          description={`${data.period} · click a segment to drill down`}
+        >
           <div className="grid gap-4 md:grid-cols-2">
             <div className="relative">
               <ResponsiveContainer width="100%" height={220}>
@@ -313,17 +574,18 @@ function ExecutivePage() {
                     innerRadius={60}
                     outerRadius={90}
                     paddingAngle={2}
-                    onClick={(entry) =>
-                      setDrill({ kind: "payer", payer: (entry as unknown as { payer: string }).payer })
-                    }
+                    onClick={(entry) => {
+                      const payer = (entry as unknown as { payer: string }).payer;
+                      setDrill({ kind: "payer", payer });
+                      setPayerChain(payer);
+                    }}
                   >
                     {data.revenue.byPayer.map((slice) => (
                       <Cell key={slice.payer} fill={slice.color} className="cursor-pointer" />
                     ))}
                   </Pie>
                   <Tooltip
-                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                    formatter={(value: number, name: string) => [php(value, { compact: true }), name]}
+                    content={<RichTooltip valueFormatter={(v) => php(v, { compact: true })} />}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -338,7 +600,10 @@ function ExecutivePage() {
               {data.revenue.byPayer.map((slice) => (
                 <button
                   key={slice.payer}
-                  onClick={() => setDrill({ kind: "payer", payer: slice.payer })}
+                  onClick={() => {
+                    setDrill({ kind: "payer", payer: slice.payer });
+                    setPayerChain(slice.payer);
+                  }}
                   className="flex items-center justify-between gap-2 rounded px-1 py-0.5 text-left hover:bg-muted"
                 >
                   <LegendDot color={slice.color} label={slice.payer} />
@@ -350,19 +615,50 @@ function ExecutivePage() {
             </div>
           </div>
           <div className="mt-3 border-t border-border pt-3">
-            <p className="mb-1 text-xs text-text-muted">Payer mix trended over 6 months</p>
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-1">
+              <p className="text-xs text-text-muted">Payer mix trended over 6 months</p>
+              {payerChain ? (
+                <ChainLinkBadge label={payerChain} onClear={() => setPayerChain(null)} />
+              ) : null}
+            </div>
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={data.revenue.payerTrend} margin={{ left: -18, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={60} tickFormatter={(v: number) => `${(v / 1_000_000).toFixed(0)}M`} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} formatter={(v: number, n: string) => [php(v, { compact: true }), n]} />
-                <Bar stackId="a" dataKey="philhealth" name="PhilHealth" fill={PALETTE.philhealth} />
-                <Bar stackId="a" dataKey="hmo" name="HMO" fill={PALETTE.hmo} />
-                <Bar stackId="a" dataKey="privatePay" name="Private" fill={PALETTE.brand} />
-                <Bar stackId="a" dataKey="scpwd" name="SC/PWD" fill={PALETTE.scpwd} />
-                <Bar stackId="a" dataKey="gsis" name="GSIS/Other" fill={PALETTE.gsis} />
-                <Bar stackId="a" dataKey="writeoff" name="Write-off" fill={PALETTE.writeoff} />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={60}
+                  tickFormatter={(v: number) => `${(v / 1_000_000).toFixed(0)}M`}
+                />
+                <Tooltip
+                  content={
+                    <RichTooltip
+                      valueFormatter={(v) => php(v, { compact: true })}
+                      clickHint={false}
+                    />
+                  }
+                />
+                {(
+                  [
+                    ["philhealth", "PhilHealth", PALETTE.philhealth],
+                    ["hmo", "HMO", PALETTE.hmo],
+                    ["privatePay", "Private Pay", PALETTE.brand],
+                    ["scpwd", "SC/PWD Discount", PALETTE.scpwd],
+                    ["gsis", "GSIS/Other", PALETTE.gsis],
+                    ["writeoff", "Write-offs", PALETTE.writeoff],
+                  ] as const
+                ).map(([key, label, color]) => (
+                  <Bar
+                    key={key}
+                    stackId="a"
+                    dataKey={key}
+                    name={label}
+                    fill={color}
+                    fillOpacity={!payerChain || payerChain === label ? 1 : 0.25}
+                  />
+                ))}
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -371,9 +667,22 @@ function ExecutivePage() {
 
       {/* ZONE C — three panels */}
       <section className="grid gap-4 xl:grid-cols-3">
-        <PanelCard title="Top 10 Diagnoses (ICD-10)" description="Condition counts this month">
+        <InteractiveChartCard
+          title="Top 10 Diagnoses (ICD-10)"
+          description={
+            sampleFiltered
+              ? "Condition counts · filtered sample (24 admission records)"
+              : "Condition counts this month"
+          }
+          table={{ columns: diagnosisTableColumns, rows: filteredTopDiagnoses }}
+          onRowClickInTable={(row) => setDrill({ kind: "diagnosis", code: row.code })}
+        >
           <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={data.topDiagnoses} layout="vertical" margin={{ left: 10, right: 16 }}>
+            <BarChart
+              data={filteredTopDiagnoses}
+              layout="vertical"
+              margin={{ left: 10, right: 16 }}
+            >
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
               <YAxis
@@ -384,27 +693,28 @@ function ExecutivePage() {
                 tickLine={false}
                 axisLine={false}
               />
-              <Tooltip
-                contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                formatter={(v: number, _n, item) => [
-                  `${num(v)} patients`,
-                  (item?.payload as { description: string } | undefined)?.description ?? "",
-                ]}
-              />
+              <Tooltip content={<DiagnosisTooltip />} />
               <Bar
                 dataKey="count"
                 radius={[0, 4, 4, 0]}
-                onClick={(entry) => setDrill({ kind: "diagnosis", code: (entry as unknown as { code: string }).code })}
+                onClick={(entry) =>
+                  setDrill({ kind: "diagnosis", code: (entry as unknown as { code: string }).code })
+                }
               >
-                {brandRamp(data.topDiagnoses.length).map((color, i) => (
+                {brandRamp(filteredTopDiagnoses.length).map((color, i) => (
                   <Cell key={i} fill={color} className="cursor-pointer" />
                 ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
-        </PanelCard>
+        </InteractiveChartCard>
 
-        <PanelCard title="Claims Health Snapshot" description={`${num(claimTotal)} claims in cycle`}>
+        <InteractiveChartCard
+          title="Claims Health Snapshot"
+          description={`${num(claimTotal)} claims in cycle`}
+          table={{ columns: claimsTableColumns, rows: data.claims.statuses }}
+          onRowClickInTable={(row) => setDrill({ kind: "claims", status: row.status })}
+        >
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
               <Pie
@@ -415,14 +725,17 @@ function ExecutivePage() {
                 outerRadius={74}
                 paddingAngle={2}
                 onClick={(entry) =>
-                  setDrill({ kind: "claims", status: (entry as unknown as { status: string }).status })
+                  setDrill({
+                    kind: "claims",
+                    status: (entry as unknown as { status: string }).status,
+                  })
                 }
               >
                 {data.claims.statuses.map((s) => (
                   <Cell key={s.status} fill={s.color} className="cursor-pointer" />
                 ))}
               </Pie>
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} formatter={(v: number, n: string) => [`${num(v)} claims`, n]} />
+              <Tooltip content={<RichTooltip valueFormatter={(v) => `${num(v)} claims`} />} />
             </PieChart>
           </ResponsiveContainer>
           <div className="mb-2 flex flex-wrap gap-2">
@@ -442,7 +755,11 @@ function ExecutivePage() {
               {data.claims.denialReasons.slice(0, 5).map((r) => {
                 const totalDenials = data.claims.denialReasons.reduce((s, x) => s + x.count, 0);
                 return (
-                  <TableRow key={r.code} className="cursor-pointer" onClick={() => setDrill({ kind: "claims", status: "Denied" })}>
+                  <TableRow
+                    key={r.code}
+                    className="cursor-pointer"
+                    onClick={() => setDrill({ kind: "claims", status: "Denied" })}
+                  >
                     <TableCell className="text-xs">{r.reason}</TableCell>
                     <TableCell className="text-right text-xs">{r.count}</TableCell>
                     <TableCell className="text-right text-xs">
@@ -453,9 +770,13 @@ function ExecutivePage() {
               })}
             </TableBody>
           </Table>
-        </PanelCard>
+        </InteractiveChartCard>
 
-        <PanelCard title="Laboratory TAT Performance" description="Results released within target TAT">
+        <InteractiveChartCard
+          title="Laboratory TAT Performance"
+          description="Results released within target TAT"
+          table={{ columns: labTableColumns, rows: data.lab.byCategory }}
+        >
           <Gauge value={data.lab.compliance} label={`Target ${pct(data.lab.target, 0)}`} />
           <div className="mt-2 space-y-2">
             {data.lab.byCategory.map((c) => (
@@ -474,19 +795,31 @@ function ExecutivePage() {
             <p className="mb-1 text-xs text-text-muted">TAT compliance, last 30 days</p>
             <ResponsiveContainer width="100%" height={70}>
               <LineChart data={data.lab.trend}>
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} formatter={(v: number) => [pct(v), "Compliance"]} />
-                <Line type="monotone" dataKey="value" stroke={PALETTE.brand} strokeWidth={1.75} dot={false} />
+                <Tooltip
+                  content={<RichTooltip valueFormatter={(v) => pct(v)} clickHint={false} />}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  name="Compliance"
+                  stroke={PALETTE.brand}
+                  strokeWidth={1.75}
+                  dot={false}
+                />
                 <YAxis hide domain={[60, 100]} />
                 <XAxis dataKey="day" hide />
               </LineChart>
             </ResponsiveContainer>
           </div>
-        </PanelCard>
+        </InteractiveChartCard>
       </section>
 
       {/* ZONE D — alerts */}
       <section className="space-y-3">
-        <SectionTitle title="Alerts & pending actions" description="Items requiring executive attention today." />
+        <SectionTitle
+          title="Alerts & pending actions"
+          description="Items requiring executive attention today."
+        />
         <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
           {data.alerts.map((alert) => (
             <div
@@ -499,7 +832,10 @@ function ExecutivePage() {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <AlertTriangle
-                    className={cn("size-4", alert.severity === "danger" ? "text-danger" : "text-warning")}
+                    className={cn(
+                      "size-4",
+                      alert.severity === "danger" ? "text-danger" : "text-warning",
+                    )}
                   />
                   <span className="text-2xl font-semibold text-text-primary">{alert.count}</span>
                 </div>
@@ -527,13 +863,48 @@ function ExecutivePage() {
 
 /* ------------------------------------------------------------------ */
 
-function MiniBar({ rows, suffix = "" }: { rows: { name: string; value: number }[]; suffix?: string }) {
+function DiagnosisTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: RichTooltipPayloadEntry[];
+}) {
+  const first = payload?.[0];
+  const desc = (first?.payload as { description?: string } | undefined)?.description;
+  return (
+    <RichTooltip
+      {...(active !== undefined ? { active } : {})}
+      {...(payload !== undefined ? { payload } : {})}
+      {...(desc !== undefined ? { label: desc } : {})}
+      valueFormatter={(v) => `${num(v)} patients`}
+    />
+  );
+}
+
+function MiniBar({
+  rows,
+  suffix = "",
+}: {
+  rows: { name: string; value: number }[];
+  suffix?: string;
+}) {
   return (
     <ResponsiveContainer width="100%" height={Math.max(140, rows.length * 30)}>
       <BarChart data={rows} layout="vertical" margin={{ left: 10, right: 24 }}>
         <XAxis type="number" hide />
-        <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-        <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} formatter={(v: number) => [`${v}${suffix}`, ""]} />
+        <YAxis
+          type="category"
+          dataKey="name"
+          width={130}
+          tick={{ fontSize: 11 }}
+          tickLine={false}
+          axisLine={false}
+        />
+        <Tooltip
+          contentStyle={{ fontSize: 12, borderRadius: 8 }}
+          formatter={(v: number) => [`${v}${suffix}`, ""]}
+        />
         <Bar dataKey="value" fill={PALETTE.brand} radius={[0, 4, 4, 0]} />
       </BarChart>
     </ResponsiveContainer>
@@ -553,12 +924,33 @@ function ExecutiveDrawer({
   let title = "";
   let description = "";
   let body: React.ReactNode = null;
+  let fullReportHref: string | undefined;
+  let exportRows: unknown[] | undefined;
+  let exportColumns: { header: string; get: (row: unknown) => string }[] | undefined;
 
   if (drill?.kind === "kpi") {
     switch (drill.id) {
       case "admissions":
         title = "Total Admissions (MTD)";
         description = `${num(data.admissions.total)} inpatient encounters · ${data.admissions.deltaMonth}% vs ${data.priorPeriod}, ${data.admissions.deltaYear}% vs last year`;
+        fullReportHref = "/reports/admission-discharge-logbook";
+        exportRows = data.admissions.rows;
+        exportColumns = [
+          { header: "Patient", get: (r) => (r as (typeof data.admissions.rows)[number]).patient },
+          {
+            header: "Diagnosis",
+            get: (r) => (r as (typeof data.admissions.rows)[number]).diagnosis,
+          },
+          {
+            header: "Physician",
+            get: (r) => (r as (typeof data.admissions.rows)[number]).physician,
+          },
+          { header: "LOS", get: (r) => String((r as (typeof data.admissions.rows)[number]).los) },
+          {
+            header: "Disposition",
+            get: (r) => (r as (typeof data.admissions.rows)[number]).disposition,
+          },
+        ];
         body = (
           <Table>
             <TableHeader>
@@ -623,10 +1015,29 @@ function ExecutiveDrawer({
               <ResponsiveContainer width="100%" height={180}>
                 <LineChart data={data.bor.trend} margin={{ left: -18 }}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} domain={[50, 100]} />
-                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} formatter={(v: number) => [pct(v), "BOR"]} />
-                  <Line type="monotone" dataKey="value" stroke={PALETTE.brand} strokeWidth={2} dot={false} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    domain={[50, 100]}
+                  />
+                  <Tooltip
+                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                    formatter={(v: number) => [pct(v), "BOR"]}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    stroke={PALETTE.brand}
+                    strokeWidth={2}
+                    dot={false}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -636,6 +1047,7 @@ function ExecutiveDrawer({
       case "revenue":
         title = "Total Revenue (MTD)";
         description = php(data.revenue.total);
+        fullReportHref = "/reports/revenue-collection";
         body = (
           <div className="space-y-5">
             <div>
@@ -662,6 +1074,7 @@ function ExecutiveDrawer({
       case "remittance":
         title = "PhilHealth Remittance (MTD)";
         description = `${php(data.remittance.received)} received of ${php(data.remittance.expected)} expected`;
+        fullReportHref = "/reports/philhealth-claims-register";
         body = (
           <Table>
             <TableHeader>
@@ -679,9 +1092,13 @@ function ExecutiveDrawer({
                   <TableCell className="text-xs">{b.batch}</TableCell>
                   <TableCell className="text-xs">{b.caseType}</TableCell>
                   <TableCell className="text-right text-xs">{b.claims}</TableCell>
-                  <TableCell className="text-right text-xs">{php(b.amount, { compact: true })}</TableCell>
+                  <TableCell className="text-right text-xs">
+                    {php(b.amount, { compact: true })}
+                  </TableCell>
                   <TableCell className="text-xs">
-                    <StatusBadge tone={b.status === "Received" ? "good" : "warning"}>{b.status}</StatusBadge>
+                    <StatusBadge tone={b.status === "Received" ? "good" : "warning"}>
+                      {b.status}
+                    </StatusBadge>
                   </TableCell>
                 </TableRow>
               ))}
@@ -692,6 +1109,7 @@ function ExecutiveDrawer({
       case "approval":
         title = "Claim Approval Rate";
         description = `${pct(data.approvalRate.value)} approved · denied claims by reason below`;
+        fullReportHref = "/reports/denial-appeal-tracker";
         body = (
           <div className="space-y-5">
             <MiniBar rows={data.approvalRate.byDepartment} suffix="%" />
@@ -730,6 +1148,7 @@ function ExecutiveDrawer({
     const slice = data.revenue.byPayer.find((p) => p.payer === drill.payer);
     title = `${drill.payer} revenue`;
     description = slice ? php(slice.amount) : "";
+    fullReportHref = "/reports/revenue-collection";
     body = (
       <div className="space-y-1">
         {data.revenue.byDepartment.map((d, i) => (
@@ -745,6 +1164,7 @@ function ExecutiveDrawer({
     const dx = data.topDiagnoses.find((d) => d.code === drill.code);
     title = `${dx?.code} · ${dx?.description}`;
     description = `${dx?.count} patients this month`;
+    fullReportHref = "/reports/morbidity-summary";
     body = dx ? (
       <div className="space-y-4">
         <StatRow label="PhilHealth case rate" value={php(dx.caseRate)} />
@@ -758,7 +1178,11 @@ function ExecutiveDrawer({
           {data.admissions.rows
             .filter((r) => r.icd10 === dx.code)
             .map((r) => (
-              <StatRow key={r.encounterId} label={`${r.patient} · ${r.department}`} value={`${r.los}d`} />
+              <StatRow
+                key={r.encounterId}
+                label={`${r.patient} · ${r.department}`}
+                value={`${r.los}d`}
+              />
             ))}
         </div>
       </div>
@@ -766,11 +1190,19 @@ function ExecutiveDrawer({
   } else if (drill?.kind === "claims") {
     const status = data.claims.statuses.find((s) => s.status === drill.status);
     title = `Claims — ${drill.status}`;
-    description = status ? `${num(status.count)} claims · ${php(status.value, { compact: true })}` : "";
+    description = status
+      ? `${num(status.count)} claims · ${php(status.value, { compact: true })}`
+      : "";
+    fullReportHref =
+      drill.status === "Denied"
+        ? "/reports/denial-appeal-tracker"
+        : "/reports/philhealth-claims-register";
     body = (
       <div className="space-y-4">
         <div>
-          <p className="mb-1 text-xs font-medium text-text-secondary">Denial reasons & recommended actions</p>
+          <p className="mb-1 text-xs font-medium text-text-secondary">
+            Denial reasons & recommended actions
+          </p>
           <Table>
             <TableHeader>
               <TableRow>
@@ -787,7 +1219,9 @@ function ExecutiveDrawer({
                     <div>{r.reason}</div>
                     <div className="text-text-muted">{r.action}</div>
                   </TableCell>
-                  <TableCell className="text-right text-xs">{php(r.valueAtRisk, { compact: true })}</TableCell>
+                  <TableCell className="text-right text-xs">
+                    {php(r.valueAtRisk, { compact: true })}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -799,6 +1233,7 @@ function ExecutiveDrawer({
     const alert = data.alerts.find((a) => a.id === drill.id);
     title = alert?.title ?? "";
     description = `${alert?.count} items · ${alert?.module} module`;
+    fullReportHref = alert ? reportHrefForModule(alert.module) : undefined;
     body = (
       <div className="space-y-3">
         <p className="text-sm text-text-secondary">{alert?.detail}</p>
@@ -814,9 +1249,17 @@ function ExecutiveDrawer({
   }
 
   return (
-    <DrillDrawer open={open} onOpenChange={(v) => (v ? null : onClose())} title={title} description={description}>
+    <ChartDrillDrawer
+      open={open}
+      onOpenChange={(v) => (v ? null : onClose())}
+      metricName={title}
+      value={description}
+      {...(exportRows ? { exportRows } : {})}
+      {...(exportColumns ? { exportColumns } : {})}
+      {...(fullReportHref ? { fullReportHref } : {})}
+    >
       {body}
-    </DrillDrawer>
+    </ChartDrillDrawer>
   );
 }
 

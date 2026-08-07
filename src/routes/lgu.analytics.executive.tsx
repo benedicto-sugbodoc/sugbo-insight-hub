@@ -37,7 +37,6 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  DrillDrawer,
   KpiStrip,
   MetricCard,
   MetricStatus,
@@ -63,6 +62,21 @@ import {
   fetchLguExecutiveData,
   LguExecutiveData,
 } from "@/lib/analytics/lgu/executive.mock";
+import type { ReportColumn } from "@/components/reports/types";
+import {
+  AddAnnotationButton,
+  AnnotationList,
+  ChartDrillDrawer,
+  GlobalFilterBar,
+  InteractiveChartCard,
+  RichTooltip,
+  RoleSwitcher,
+  ZoomControls,
+  useAnnotations,
+  useMockRole,
+  useUrlSyncedFilters,
+  type ZoomPreset,
+} from "@/components/analytics/interactive";
 
 export const Route = createFileRoute("/lgu/analytics/executive")({
   head: () => ({
@@ -87,6 +101,30 @@ function coverageStatus(v: number, good: number, warn: number): MetricStatus {
   return "danger";
 }
 
+const zoomWindowSize: Record<ZoomPreset, number> = {
+  "1M": 4,
+  "3M": 12,
+  "6M": 24,
+  "1Y": 48,
+  All: 999,
+};
+
+function reportHrefForKpi(id: string): string | undefined {
+  switch (id) {
+    case "konsulta":
+    case "ekas":
+      return "/lgu/reports/konsulta-enrollment-utilization";
+    case "tb":
+      return "/lgu/reports/tb-quarterly-ntp";
+    case "immunization":
+      return "/lgu/reports/immunization-coverage-antigen-barangay";
+    case "referral":
+      return "/lgu/reports/referral-network-analysis";
+    default:
+      return undefined;
+  }
+}
+
 function LguExecutivePage() {
   const { data, isLoading } = useQuery({
     queryKey: ["lgu-analytics", "executive"],
@@ -96,8 +134,52 @@ function LguExecutivePage() {
   const [metric, setMetric] = React.useState<ChoroplethMetricKey>("visitDensity");
   const [ageGroup, setAgeGroup] = React.useState<"all" | "under5">("all");
   const [epiGranularity, setEpiGranularity] = React.useState("week");
+  const [role, setRole] = useMockRole();
+  const {
+    values: filterValues,
+    setValues: setFilterValues,
+    dateRange,
+    setDateRange,
+  } = useUrlSyncedFilters(["barangay"]);
+  const [epiZoomPreset, setEpiZoomPreset] = React.useState<ZoomPreset>("All");
+  const [epiZoomOffset, setEpiZoomOffset] = React.useState(0);
+  const { annotations, addAnnotation, removeAnnotation } = useAnnotations("lgu-executive-epicurve");
 
   if (isLoading || !data) return <LguExecutiveSkeleton />;
+
+  const barangayOptions = data.barangays.map((b) => ({ label: b.name, value: b.id }));
+  const activeBarangayId =
+    filterValues["barangay"] && filterValues["barangay"] !== "all"
+      ? filterValues["barangay"]
+      : null;
+  const activeBarangay = activeBarangayId
+    ? data.barangays.find((b) => b.id === activeBarangayId)
+    : null;
+
+  const epiWindowSize = Math.min(zoomWindowSize[epiZoomPreset], data.epiCurve.length);
+  const epiMaxOffset = data.epiCurve.length - epiWindowSize;
+  const epiClampedOffset = Math.min(Math.max(epiZoomOffset, 0), epiMaxOffset);
+  const epiCurveWindow = data.epiCurve.slice(
+    data.epiCurve.length - epiWindowSize - epiClampedOffset,
+    data.epiCurve.length - epiClampedOffset,
+  );
+  const epiIsZoomed = epiWindowSize < data.epiCurve.length || epiClampedOffset > 0;
+  const epiTableColumns: ReportColumn<(typeof epiCurveWindow)[number]>[] = [
+    { key: "period", header: "Period" },
+    { key: "dengue", header: "Dengue", align: "right" },
+    { key: "ari", header: "ARI", align: "right" },
+    { key: "diarrhea", header: "Diarrhea", align: "right" },
+    { key: "measles", header: "Measles", align: "right" },
+  ];
+  const morbidityTableColumns: ReportColumn<{
+    code: string;
+    description: string;
+    count: number;
+  }>[] = [
+    { key: "code", header: "ICD-10" },
+    { key: "description", header: "Diagnosis" },
+    { key: "count", header: "Cases", align: "right" },
+  ];
 
   const metricDef = CHOROPLETH_METRICS.find((m) => m.key === metric)!;
   const values = data.barangays.map((b) => b[metric] as number);
@@ -136,8 +218,19 @@ function LguExecutivePage() {
             {num(data.totalPopulation)}
           </p>
         </div>
-        <StatusBadge tone="neutral">{data.role} view</StatusBadge>
+        <div className="flex items-center gap-2">
+          <RoleSwitcher role={role} onChange={setRole} />
+          <StatusBadge tone="neutral">{data.role} view</StatusBadge>
+        </div>
       </header>
+
+      <GlobalFilterBar
+        filters={[{ key: "barangay", label: "Barangay", options: barangayOptions }]}
+        values={filterValues}
+        onChange={(key, value) => setFilterValues((v) => ({ ...v, [key]: value }))}
+        dateRange={dateRange}
+        onDateRangeChange={setDateRange}
+      />
 
       {data.outbreaks.length > 0 ? <OutbreakBanner diseases={data.outbreaks} /> : null}
 
@@ -265,37 +358,58 @@ function LguExecutivePage() {
 
       {/* ZONE C — disease surveillance */}
       <section className="grid gap-4 xl:grid-cols-3">
-        <PanelCard
+        <InteractiveChartCard
           title="Epidemic Curve"
           description={`New cases by ${epiGranularity} · dengue vs prior-year baseline`}
           className="xl:col-span-2"
+          table={{ columns: epiTableColumns, rows: epiCurveWindow }}
           action={
-            <Tabs value={epiGranularity} onValueChange={setEpiGranularity}>
-              <TabsList className="h-7">
-                <TabsTrigger value="week" className="text-xs">
-                  Weekly
-                </TabsTrigger>
-                <TabsTrigger value="day" className="text-xs">
-                  Daily
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Tabs value={epiGranularity} onValueChange={setEpiGranularity}>
+                <TabsList className="h-7">
+                  <TabsTrigger value="week" className="text-xs">
+                    Weekly
+                  </TabsTrigger>
+                  <TabsTrigger value="day" className="text-xs">
+                    Daily
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <ZoomControls
+                preset={epiZoomPreset}
+                onPresetChange={(p) => {
+                  setEpiZoomPreset(p);
+                  setEpiZoomOffset(0);
+                }}
+                onShift={(dir) => setEpiZoomOffset((o) => o + dir)}
+                zoomed={epiIsZoomed}
+                onReset={() => {
+                  setEpiZoomPreset("All");
+                  setEpiZoomOffset(0);
+                }}
+              />
+              <AddAnnotationButton
+                role={role}
+                xOptions={epiCurveWindow.map((d) => d.period)}
+                onAdd={(x, note) => addAnnotation(x, note, "You (Admin)")}
+              />
+            </div>
           }
         >
           <ResponsiveContainer width="100%" height={300}>
-            <ComposedChart data={data.epiCurve} margin={{ left: -12, right: 8, top: 8 }}>
+            <ComposedChart data={epiCurveWindow} margin={{ left: -12, right: 8, top: 8 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
               <XAxis dataKey="period" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
               <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={40} />
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <Tooltip content={<RichTooltip valueFormatter={num} clickHint={false} />} />
               <ReferenceLine
-                y={data.epiCurve[0]?.dengueBaseline ?? 0}
+                y={epiCurveWindow[0]?.dengueBaseline ?? 0}
                 stroke={PALETTE.neutral}
                 strokeDasharray="4 4"
                 label={{ value: "Baseline", fontSize: 10, position: "insideTopLeft" }}
               />
               <Bar dataKey="dengue" name="Dengue" radius={[3, 3, 0, 0]}>
-                {data.epiCurve.map((d, i) => (
+                {epiCurveWindow.map((d, i) => (
                   <Cell
                     key={i}
                     fill={d.dengue >= d.dengueBaseline * 2 ? LGU_COLORS.outbreak : PALETTE.brand}
@@ -333,26 +447,50 @@ function LguExecutivePage() {
             Bars turn dark red when a week exceeds 2× the prior-year baseline — the trigger for an
             outbreak investigation.
           </p>
-        </PanelCard>
+          <AnnotationList
+            annotations={annotations}
+            {...(role === "Admin" ? { onRemove: removeAnnotation } : {})}
+          />
+        </InteractiveChartCard>
 
-        <PanelCard
+        <InteractiveChartCard
           title="Ten Leading Causes of Morbidity"
-          description="Current month vs prior periods"
+          description={
+            activeBarangay
+              ? `${activeBarangay.name} · top diagnoses this month`
+              : "Current month vs prior periods"
+          }
+          table={{
+            columns: morbidityTableColumns,
+            rows: activeBarangay
+              ? activeBarangay.topDiagnoses
+              : morbiditySorted.map((m) => ({
+                  code: m.code,
+                  description: m.description,
+                  count: m.current,
+                })),
+          }}
           action={
-            <Tabs value={ageGroup} onValueChange={(v) => setAgeGroup(v as "all" | "under5")}>
-              <TabsList className="h-7">
-                <TabsTrigger value="all" className="text-xs">
-                  All ages
-                </TabsTrigger>
-                <TabsTrigger value="under5" className="text-xs">
-                  &lt;5y
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
+            !activeBarangay ? (
+              <Tabs value={ageGroup} onValueChange={(v) => setAgeGroup(v as "all" | "under5")}>
+                <TabsList className="h-7">
+                  <TabsTrigger value="all" className="text-xs">
+                    All ages
+                  </TabsTrigger>
+                  <TabsTrigger value="under5" className="text-xs">
+                    &lt;5y
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            ) : undefined
           }
         >
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={morbiditySorted} layout="vertical" margin={{ left: 8, right: 16 }}>
+            <BarChart
+              data={activeBarangay ? activeBarangay.topDiagnoses : morbiditySorted}
+              layout="vertical"
+              margin={{ left: 8, right: 16 }}
+            >
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
               <YAxis
@@ -363,15 +501,9 @@ function LguExecutivePage() {
                 tickLine={false}
                 axisLine={false}
               />
-              <Tooltip
-                contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                formatter={(v: number, _n, item) => [
-                  num(v),
-                  (item?.payload as MorbidityRowLike)?.description ?? "",
-                ]}
-              />
+              <Tooltip content={<MorbidityTooltip />} />
               <Bar
-                dataKey="current"
+                dataKey={activeBarangay ? "count" : "current"}
                 name="Current"
                 fill={PALETTE.brand}
                 radius={[0, 4, 4, 0]}
@@ -380,7 +512,7 @@ function LguExecutivePage() {
               />
             </BarChart>
           </ResponsiveContainer>
-        </PanelCard>
+        </InteractiveChartCard>
       </section>
 
       <section>
@@ -403,6 +535,25 @@ interface MorbidityRowLike {
   description: string;
 }
 
+function MorbidityTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: { name?: string; value?: number; payload?: Record<string, unknown> }[];
+}) {
+  const first = payload?.[0];
+  const desc = (first?.payload as MorbidityRowLike | undefined)?.description;
+  return (
+    <RichTooltip
+      {...(active !== undefined ? { active } : {})}
+      {...(payload !== undefined ? { payload } : {})}
+      {...(desc !== undefined ? { label: desc } : {})}
+      valueFormatter={num}
+    />
+  );
+}
+
 /* ------------------------------------------------------------------ */
 
 function BarangayDrawer({
@@ -418,12 +569,14 @@ function BarangayDrawer({
   let title = "";
   let description = "";
   let body: React.ReactNode = null;
+  let fullReportHref: string | undefined;
 
   if (drill?.kind === "barangay") {
     const b = data.barangays.find((x) => x.id === drill.id) as BarangayMetricSet | undefined;
     if (b) {
       title = `${b.name} Health Profile`;
       description = `${b.bhc} · PHN: ${b.phn}`;
+      fullReportHref = "/lgu/reports/community-household-health-profile";
       body = (
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-3">
@@ -462,6 +615,7 @@ function BarangayDrawer({
       );
     }
   } else if (drill?.kind === "kpi") {
+    fullReportHref = reportHrefForKpi(drill.id);
     switch (drill.id) {
       case "konsulta":
         title = "Total Konsulta Visits (MTD)";
@@ -611,20 +765,22 @@ function BarangayDrawer({
   } else if (drill?.kind === "morbidity") {
     title = "Morbidity detail";
     description = "Click a barangay in Zone B for barangay-level diagnosis breakdowns.";
+    fullReportHref = "/lgu/reports/fhsis-monthly";
     body = (
       <p className="text-sm text-text-secondary">City-wide morbidity ranking shown in Zone C.</p>
     );
   }
 
   return (
-    <DrillDrawer
+    <ChartDrillDrawer
       open={open}
       onOpenChange={(v) => (v ? null : onClose())}
-      title={title}
-      description={description}
+      metricName={title}
+      value={description}
+      {...(fullReportHref ? { fullReportHref } : {})}
     >
       {body}
-    </DrillDrawer>
+    </ChartDrillDrawer>
   );
 }
 
