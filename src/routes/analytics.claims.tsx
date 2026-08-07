@@ -341,7 +341,7 @@ function ClaimsPage() {
               nameKey="name"
               stroke="#fff"
               onClick={(entry) => setDrill({ kind: "caseType", name: (entry as unknown as { name: string }).name })}
-              content={<TreemapCell maxValue={maxTreemapValue} />}
+              content={<TreemapCell maxValue={maxTreemapValue} /> as unknown as React.ReactElement}
             >
               <Tooltip
                 contentStyle={{ fontSize: 12, borderRadius: 8 }}
