@@ -3,6 +3,7 @@ import {
   Activity,
   Baby,
   Bell,
+  Building2,
   Clock,
   Filter,
   HeartHandshake,
@@ -83,6 +84,13 @@ function LguAnalyticsLayout() {
               </Link>
             );
           })}
+          <Link
+            to="/analytics/executive"
+            className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-muted hover:text-text-primary"
+          >
+            <Building2 className="size-4" />
+            Hospital
+          </Link>
         </div>
       </div>
       <div className="mx-auto max-w-[1600px] px-4 py-6">

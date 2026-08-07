@@ -6,6 +6,7 @@ import {
   FlaskConical,
   HeartPulse,
   LineChart,
+  MapPinned,
   Receipt,
   ShieldCheck,
   Users,
@@ -78,6 +79,13 @@ function AnalyticsLayout() {
               </Link>
             );
           })}
+          <Link
+            to="/lgu/analytics/executive"
+            className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-secondary transition-colors hover:bg-muted hover:text-text-primary"
+          >
+            <MapPinned className="size-4" />
+            LGU / City Health
+          </Link>
         </div>
       </div>
       <div className="mx-auto max-w-[1600px] px-4 py-6">
