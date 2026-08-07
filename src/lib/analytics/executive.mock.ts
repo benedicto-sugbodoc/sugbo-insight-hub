@@ -57,6 +57,7 @@ export interface PayerTrendPoint {
 export interface DiagnosisRow {
   code: string;
   description: string;
+  commonName: string;
   count: number;
   caseRate: number;
   avgLos: number;
@@ -430,6 +431,7 @@ export function getExecutiveData(): ExecutiveData {
     topDiagnoses: diagnoses.map(([code, description], i) => ({
       code,
       description,
+      commonName: PH_TOP_DIAGNOSES[i]?.commonName ?? description,
       count: Math.max(8, 94 - i * 7),
       caseRate: PH_DIAGNOSIS_CASE_RATES[code] ?? 10_000,
       avgLos: 3 + ((i * 7) % 5) * 0.6,

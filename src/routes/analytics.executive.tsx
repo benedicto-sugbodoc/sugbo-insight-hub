@@ -687,8 +687,8 @@ function ExecutivePage() {
               <XAxis type="number" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
               <YAxis
                 type="category"
-                dataKey="code"
-                width={62}
+                dataKey="commonName"
+                width={124}
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}

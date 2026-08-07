@@ -495,8 +495,8 @@ function LguExecutivePage() {
               <XAxis type="number" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
               <YAxis
                 type="category"
-                dataKey="code"
-                width={48}
+                dataKey="description"
+                width={130}
                 tick={{ fontSize: 10 }}
                 tickLine={false}
                 axisLine={false}

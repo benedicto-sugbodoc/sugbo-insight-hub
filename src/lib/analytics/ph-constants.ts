@@ -16,22 +16,56 @@
 export interface IcdEntry {
   code: string;
   description: string;
+  /** Short everyday name for chart axes/labels, as opposed to the full clinical description. */
+  commonName: string;
 }
 
 /** Philippines top-10-style morbidity/mortality ICD-10 list (12 entries per spec). */
 export const PH_TOP_DIAGNOSES: IcdEntry[] = [
-  { code: "J18.9", description: "Pneumonia, unspecified organism" },
-  { code: "I10", description: "Essential (primary) hypertension" },
-  { code: "E11.9", description: "Type 2 diabetes mellitus, without complications" },
-  { code: "A09", description: "Diarrhea and gastroenteritis of presumed infectious origin" },
-  { code: "J00", description: "Acute nasopharyngitis (common cold)" },
-  { code: "J06.9", description: "Acute upper respiratory infection, unspecified (AURI)" },
-  { code: "K29.7", description: "Gastritis, unspecified" },
-  { code: "M54.5", description: "Low back pain" },
-  { code: "N39.0", description: "Urinary tract infection, site not specified" },
-  { code: "O80", description: "Single spontaneous delivery (NSD)" },
-  { code: "A15.0", description: "Tuberculosis of lung" },
-  { code: "C50.9", description: "Malignant neoplasm of breast, unspecified" },
+  { code: "J18.9", description: "Pneumonia, unspecified organism", commonName: "Pneumonia" },
+  {
+    code: "I10",
+    description: "Essential (primary) hypertension",
+    commonName: "Hypertension",
+  },
+  {
+    code: "E11.9",
+    description: "Type 2 diabetes mellitus, without complications",
+    commonName: "Type 2 Diabetes",
+  },
+  {
+    code: "A09",
+    description: "Diarrhea and gastroenteritis of presumed infectious origin",
+    commonName: "Diarrhea/Gastroenteritis",
+  },
+  {
+    code: "J00",
+    description: "Acute nasopharyngitis (common cold)",
+    commonName: "Common Cold",
+  },
+  {
+    code: "J06.9",
+    description: "Acute upper respiratory infection, unspecified (AURI)",
+    commonName: "Acute Respiratory Infection",
+  },
+  { code: "K29.7", description: "Gastritis, unspecified", commonName: "Gastritis" },
+  { code: "M54.5", description: "Low back pain", commonName: "Low Back Pain" },
+  {
+    code: "N39.0",
+    description: "Urinary tract infection, site not specified",
+    commonName: "Urinary Tract Infection",
+  },
+  {
+    code: "O80",
+    description: "Single spontaneous delivery (NSD)",
+    commonName: "Normal Delivery",
+  },
+  { code: "A15.0", description: "Tuberculosis of lung", commonName: "Pulmonary TB" },
+  {
+    code: "C50.9",
+    description: "Malignant neoplasm of breast, unspecified",
+    commonName: "Breast Cancer",
+  },
 ];
 
 /** PhilHealth case rate (CR1+CR2), PHP, indexed to PH_TOP_DIAGNOSES order. */
