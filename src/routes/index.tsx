@@ -1,20 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { MedicalDirectorDashboard } from "@/components/analytics/dashboard";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
+// The old standalone "Medical Director" landing page duplicated the
+// Executive Analytics dashboard almost exactly, so the app no longer
+// ships a separate homepage — "/" forwards straight into Analytics.
 export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "SugboDoc Analytics — Executive Overview" },
-      { name: "description", content: "Executive overview for the Medical Director of Cebu City Medical Center." },
-      { property: "og:title", content: "SugboDoc Analytics — Executive Overview" },
-      { property: "og:description", content: "Executive overview for the Medical Director of Cebu City Medical Center." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-  }),
-  component: Index,
+  beforeLoad: () => {
+    throw redirect({ to: "/analytics/executive" });
+  },
 });
-
-function Index() {
-  return <MedicalDirectorDashboard />;
-}
