@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
+import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as AnalyticsIndexRouteImport } from './routes/analytics.index'
 import { Route as AnalyticsClaimsRouteImport } from './routes/analytics.claims'
 import { Route as AnalyticsClinicalRouteImport } from './routes/analytics.clinical'
@@ -19,6 +20,9 @@ import { Route as AnalyticsLaboratoryRouteImport } from './routes/analytics.labo
 import { Route as AnalyticsQualityRouteImport } from './routes/analytics.quality'
 import { Route as AnalyticsRevenueRouteImport } from './routes/analytics.revenue'
 import { Route as LguAnalyticsRouteImport } from './routes/lgu.analytics'
+import { Route as LguReportsRouteImport } from './routes/lgu.reports'
+import { Route as ReportsIndexRouteImport } from './routes/reports.index'
+import { Route as ReportsReportIdRouteImport } from './routes/reports.$reportId'
 import { Route as LguAnalyticsIndexRouteImport } from './routes/lgu.analytics.index'
 import { Route as LguAnalyticsExecutiveRouteImport } from './routes/lgu.analytics.executive'
 import { Route as LguAnalyticsKonsultaRouteImport } from './routes/lgu.analytics.konsulta'
@@ -26,6 +30,8 @@ import { Route as LguAnalyticsMaternalRouteImport } from './routes/lgu.analytics
 import { Route as LguAnalyticsNcdRouteImport } from './routes/lgu.analytics.ncd'
 import { Route as LguAnalyticsPopulationRouteImport } from './routes/lgu.analytics.population'
 import { Route as LguAnalyticsTbRouteImport } from './routes/lgu.analytics.tb'
+import { Route as LguReportsIndexRouteImport } from './routes/lgu.reports.index'
+import { Route as LguReportsReportIdRouteImport } from './routes/lgu.reports.$reportId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -35,6 +41,11 @@ const IndexRoute = IndexRouteImport.update({
 const AnalyticsRoute = AnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReportsRoute = ReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AnalyticsIndexRoute = AnalyticsIndexRouteImport.update({
@@ -77,6 +88,21 @@ const LguAnalyticsRoute = LguAnalyticsRouteImport.update({
   path: '/lgu/analytics',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LguReportsRoute = LguReportsRouteImport.update({
+  id: '/lgu/reports',
+  path: '/lgu/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReportsIndexRoute = ReportsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ReportsRoute,
+} as any)
+const ReportsReportIdRoute = ReportsReportIdRouteImport.update({
+  id: '/$reportId',
+  path: '/$reportId',
+  getParentRoute: () => ReportsRoute,
+} as any)
 const LguAnalyticsIndexRoute = LguAnalyticsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -112,10 +138,21 @@ const LguAnalyticsTbRoute = LguAnalyticsTbRouteImport.update({
   path: '/tb',
   getParentRoute: () => LguAnalyticsRoute,
 } as any)
+const LguReportsIndexRoute = LguReportsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => LguReportsRoute,
+} as any)
+const LguReportsReportIdRoute = LguReportsReportIdRouteImport.update({
+  id: '/$reportId',
+  path: '/$reportId',
+  getParentRoute: () => LguReportsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRouteWithChildren
+  '/reports': typeof ReportsRouteWithChildren
   '/analytics/claims': typeof AnalyticsClaimsRoute
   '/analytics/clinical': typeof AnalyticsClinicalRoute
   '/analytics/executive': typeof AnalyticsExecutiveRoute
@@ -123,14 +160,19 @@ export interface FileRoutesByFullPath {
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/lgu/analytics': typeof LguAnalyticsRouteWithChildren
+  '/lgu/reports': typeof LguReportsRouteWithChildren
+  '/reports/$reportId': typeof ReportsReportIdRoute
   '/analytics/': typeof AnalyticsIndexRoute
+  '/reports/': typeof ReportsIndexRoute
   '/lgu/analytics/executive': typeof LguAnalyticsExecutiveRoute
   '/lgu/analytics/konsulta': typeof LguAnalyticsKonsultaRoute
   '/lgu/analytics/maternal': typeof LguAnalyticsMaternalRoute
   '/lgu/analytics/ncd': typeof LguAnalyticsNcdRoute
   '/lgu/analytics/population': typeof LguAnalyticsPopulationRoute
   '/lgu/analytics/tb': typeof LguAnalyticsTbRoute
+  '/lgu/reports/$reportId': typeof LguReportsReportIdRoute
   '/lgu/analytics/': typeof LguAnalyticsIndexRoute
+  '/lgu/reports/': typeof LguReportsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -140,19 +182,24 @@ export interface FileRoutesByTo {
   '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
+  '/reports/$reportId': typeof ReportsReportIdRoute
   '/analytics': typeof AnalyticsIndexRoute
+  '/reports': typeof ReportsIndexRoute
   '/lgu/analytics/executive': typeof LguAnalyticsExecutiveRoute
   '/lgu/analytics/konsulta': typeof LguAnalyticsKonsultaRoute
   '/lgu/analytics/maternal': typeof LguAnalyticsMaternalRoute
   '/lgu/analytics/ncd': typeof LguAnalyticsNcdRoute
   '/lgu/analytics/population': typeof LguAnalyticsPopulationRoute
   '/lgu/analytics/tb': typeof LguAnalyticsTbRoute
+  '/lgu/reports/$reportId': typeof LguReportsReportIdRoute
   '/lgu/analytics': typeof LguAnalyticsIndexRoute
+  '/lgu/reports': typeof LguReportsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/analytics': typeof AnalyticsRouteWithChildren
+  '/reports': typeof ReportsRouteWithChildren
   '/analytics/claims': typeof AnalyticsClaimsRoute
   '/analytics/clinical': typeof AnalyticsClinicalRoute
   '/analytics/executive': typeof AnalyticsExecutiveRoute
@@ -160,20 +207,26 @@ export interface FileRoutesById {
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/lgu/analytics': typeof LguAnalyticsRouteWithChildren
+  '/lgu/reports': typeof LguReportsRouteWithChildren
+  '/reports/$reportId': typeof ReportsReportIdRoute
   '/analytics/': typeof AnalyticsIndexRoute
+  '/reports/': typeof ReportsIndexRoute
   '/lgu/analytics/executive': typeof LguAnalyticsExecutiveRoute
   '/lgu/analytics/konsulta': typeof LguAnalyticsKonsultaRoute
   '/lgu/analytics/maternal': typeof LguAnalyticsMaternalRoute
   '/lgu/analytics/ncd': typeof LguAnalyticsNcdRoute
   '/lgu/analytics/population': typeof LguAnalyticsPopulationRoute
   '/lgu/analytics/tb': typeof LguAnalyticsTbRoute
+  '/lgu/reports/$reportId': typeof LguReportsReportIdRoute
   '/lgu/analytics/': typeof LguAnalyticsIndexRoute
+  '/lgu/reports/': typeof LguReportsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/analytics'
+    | '/reports'
     | '/analytics/claims'
     | '/analytics/clinical'
     | '/analytics/executive'
@@ -181,14 +234,19 @@ export interface FileRouteTypes {
     | '/analytics/quality'
     | '/analytics/revenue'
     | '/lgu/analytics'
+    | '/lgu/reports'
+    | '/reports/$reportId'
     | '/analytics/'
+    | '/reports/'
     | '/lgu/analytics/executive'
     | '/lgu/analytics/konsulta'
     | '/lgu/analytics/maternal'
     | '/lgu/analytics/ncd'
     | '/lgu/analytics/population'
     | '/lgu/analytics/tb'
+    | '/lgu/reports/$reportId'
     | '/lgu/analytics/'
+    | '/lgu/reports/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -198,18 +256,23 @@ export interface FileRouteTypes {
     | '/analytics/laboratory'
     | '/analytics/quality'
     | '/analytics/revenue'
+    | '/reports/$reportId'
     | '/analytics'
+    | '/reports'
     | '/lgu/analytics/executive'
     | '/lgu/analytics/konsulta'
     | '/lgu/analytics/maternal'
     | '/lgu/analytics/ncd'
     | '/lgu/analytics/population'
     | '/lgu/analytics/tb'
+    | '/lgu/reports/$reportId'
     | '/lgu/analytics'
+    | '/lgu/reports'
   id:
     | '__root__'
     | '/'
     | '/analytics'
+    | '/reports'
     | '/analytics/claims'
     | '/analytics/clinical'
     | '/analytics/executive'
@@ -217,20 +280,27 @@ export interface FileRouteTypes {
     | '/analytics/quality'
     | '/analytics/revenue'
     | '/lgu/analytics'
+    | '/lgu/reports'
+    | '/reports/$reportId'
     | '/analytics/'
+    | '/reports/'
     | '/lgu/analytics/executive'
     | '/lgu/analytics/konsulta'
     | '/lgu/analytics/maternal'
     | '/lgu/analytics/ncd'
     | '/lgu/analytics/population'
     | '/lgu/analytics/tb'
+    | '/lgu/reports/$reportId'
     | '/lgu/analytics/'
+    | '/lgu/reports/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnalyticsRoute: typeof AnalyticsRouteWithChildren
+  ReportsRoute: typeof ReportsRouteWithChildren
   LguAnalyticsRoute: typeof LguAnalyticsRouteWithChildren
+  LguReportsRoute: typeof LguReportsRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -247,6 +317,13 @@ declare module '@tanstack/react-router' {
       path: '/analytics'
       fullPath: '/analytics'
       preLoaderRoute: typeof AnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reports': {
+      id: '/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof ReportsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/analytics/': {
@@ -305,6 +382,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LguAnalyticsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/lgu/reports': {
+      id: '/lgu/reports'
+      path: '/lgu/reports'
+      fullPath: '/lgu/reports'
+      preLoaderRoute: typeof LguReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reports/': {
+      id: '/reports/'
+      path: '/'
+      fullPath: '/reports/'
+      preLoaderRoute: typeof ReportsIndexRouteImport
+      parentRoute: typeof ReportsRoute
+    }
+    '/reports/$reportId': {
+      id: '/reports/$reportId'
+      path: '/$reportId'
+      fullPath: '/reports/$reportId'
+      preLoaderRoute: typeof ReportsReportIdRouteImport
+      parentRoute: typeof ReportsRoute
+    }
     '/lgu/analytics/': {
       id: '/lgu/analytics/'
       path: '/'
@@ -354,6 +452,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LguAnalyticsTbRouteImport
       parentRoute: typeof LguAnalyticsRoute
     }
+    '/lgu/reports/': {
+      id: '/lgu/reports/'
+      path: '/'
+      fullPath: '/lgu/reports/'
+      preLoaderRoute: typeof LguReportsIndexRouteImport
+      parentRoute: typeof LguReportsRoute
+    }
+    '/lgu/reports/$reportId': {
+      id: '/lgu/reports/$reportId'
+      path: '/$reportId'
+      fullPath: '/lgu/reports/$reportId'
+      preLoaderRoute: typeof LguReportsReportIdRouteImport
+      parentRoute: typeof LguReportsRoute
+    }
   }
 }
 
@@ -381,6 +493,19 @@ const AnalyticsRouteWithChildren = AnalyticsRoute._addFileChildren(
   AnalyticsRouteChildren,
 )
 
+interface ReportsRouteChildren {
+  ReportsReportIdRoute: typeof ReportsReportIdRoute
+  ReportsIndexRoute: typeof ReportsIndexRoute
+}
+
+const ReportsRouteChildren: ReportsRouteChildren = {
+  ReportsReportIdRoute: ReportsReportIdRoute,
+  ReportsIndexRoute: ReportsIndexRoute,
+}
+
+const ReportsRouteWithChildren =
+  ReportsRoute._addFileChildren(ReportsRouteChildren)
+
 interface LguAnalyticsRouteChildren {
   LguAnalyticsExecutiveRoute: typeof LguAnalyticsExecutiveRoute
   LguAnalyticsKonsultaRoute: typeof LguAnalyticsKonsultaRoute
@@ -405,10 +530,26 @@ const LguAnalyticsRouteWithChildren = LguAnalyticsRoute._addFileChildren(
   LguAnalyticsRouteChildren,
 )
 
+interface LguReportsRouteChildren {
+  LguReportsReportIdRoute: typeof LguReportsReportIdRoute
+  LguReportsIndexRoute: typeof LguReportsIndexRoute
+}
+
+const LguReportsRouteChildren: LguReportsRouteChildren = {
+  LguReportsReportIdRoute: LguReportsReportIdRoute,
+  LguReportsIndexRoute: LguReportsIndexRoute,
+}
+
+const LguReportsRouteWithChildren = LguReportsRoute._addFileChildren(
+  LguReportsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnalyticsRoute: AnalyticsRouteWithChildren,
+  ReportsRoute: ReportsRouteWithChildren,
   LguAnalyticsRoute: LguAnalyticsRouteWithChildren,
+  LguReportsRoute: LguReportsRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
