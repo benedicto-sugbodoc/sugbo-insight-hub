@@ -9,6 +9,7 @@ import {
   MapPinned,
   Receipt,
   ShieldCheck,
+  Sparkles,
   Users,
 } from "lucide-react";
 
@@ -45,6 +46,7 @@ const subSections = [
   { to: "/analytics/cohorts", label: "Cohort Builder", icon: Users },
   { to: "/analytics/patterns", label: "Patterns", icon: Clock },
   { to: "/analytics/alerts", label: "Alerts", icon: Bell },
+  { to: "/analytics/new-charts", label: "New Charts", icon: Sparkles },
 ] as const;
 
 function AnalyticsLayout() {

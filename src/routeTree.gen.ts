@@ -19,6 +19,7 @@ import { Route as AnalyticsClinicalRouteImport } from './routes/analytics.clinic
 import { Route as AnalyticsCohortsRouteImport } from './routes/analytics.cohorts'
 import { Route as AnalyticsExecutiveRouteImport } from './routes/analytics.executive'
 import { Route as AnalyticsLaboratoryRouteImport } from './routes/analytics.laboratory'
+import { Route as AnalyticsNewChartsRouteImport } from './routes/analytics.new-charts'
 import { Route as AnalyticsPatternsRouteImport } from './routes/analytics.patterns'
 import { Route as AnalyticsQualityRouteImport } from './routes/analytics.quality'
 import { Route as AnalyticsRevenueRouteImport } from './routes/analytics.revenue'
@@ -87,6 +88,11 @@ const AnalyticsExecutiveRoute = AnalyticsExecutiveRouteImport.update({
 const AnalyticsLaboratoryRoute = AnalyticsLaboratoryRouteImport.update({
   id: '/laboratory',
   path: '/laboratory',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
+const AnalyticsNewChartsRoute = AnalyticsNewChartsRouteImport.update({
+  id: '/new-charts',
+  path: '/new-charts',
   getParentRoute: () => AnalyticsRoute,
 } as any)
 const AnalyticsPatternsRoute = AnalyticsPatternsRouteImport.update({
@@ -195,6 +201,7 @@ export interface FileRoutesByFullPath {
   '/analytics/cohorts': typeof AnalyticsCohortsRoute
   '/analytics/executive': typeof AnalyticsExecutiveRoute
   '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
+  '/analytics/new-charts': typeof AnalyticsNewChartsRoute
   '/analytics/patterns': typeof AnalyticsPatternsRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
@@ -224,6 +231,7 @@ export interface FileRoutesByTo {
   '/analytics/cohorts': typeof AnalyticsCohortsRoute
   '/analytics/executive': typeof AnalyticsExecutiveRoute
   '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
+  '/analytics/new-charts': typeof AnalyticsNewChartsRoute
   '/analytics/patterns': typeof AnalyticsPatternsRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
@@ -254,6 +262,7 @@ export interface FileRoutesById {
   '/analytics/cohorts': typeof AnalyticsCohortsRoute
   '/analytics/executive': typeof AnalyticsExecutiveRoute
   '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
+  '/analytics/new-charts': typeof AnalyticsNewChartsRoute
   '/analytics/patterns': typeof AnalyticsPatternsRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
@@ -287,6 +296,7 @@ export interface FileRouteTypes {
     | '/analytics/cohorts'
     | '/analytics/executive'
     | '/analytics/laboratory'
+    | '/analytics/new-charts'
     | '/analytics/patterns'
     | '/analytics/quality'
     | '/analytics/revenue'
@@ -316,6 +326,7 @@ export interface FileRouteTypes {
     | '/analytics/cohorts'
     | '/analytics/executive'
     | '/analytics/laboratory'
+    | '/analytics/new-charts'
     | '/analytics/patterns'
     | '/analytics/quality'
     | '/analytics/revenue'
@@ -345,6 +356,7 @@ export interface FileRouteTypes {
     | '/analytics/cohorts'
     | '/analytics/executive'
     | '/analytics/laboratory'
+    | '/analytics/new-charts'
     | '/analytics/patterns'
     | '/analytics/quality'
     | '/analytics/revenue'
@@ -445,6 +457,13 @@ declare module '@tanstack/react-router' {
       path: '/laboratory'
       fullPath: '/analytics/laboratory'
       preLoaderRoute: typeof AnalyticsLaboratoryRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
+    '/analytics/new-charts': {
+      id: '/analytics/new-charts'
+      path: '/new-charts'
+      fullPath: '/analytics/new-charts'
+      preLoaderRoute: typeof AnalyticsNewChartsRouteImport
       parentRoute: typeof AnalyticsRoute
     }
     '/analytics/patterns': {
@@ -590,6 +609,7 @@ interface AnalyticsRouteChildren {
   AnalyticsCohortsRoute: typeof AnalyticsCohortsRoute
   AnalyticsExecutiveRoute: typeof AnalyticsExecutiveRoute
   AnalyticsLaboratoryRoute: typeof AnalyticsLaboratoryRoute
+  AnalyticsNewChartsRoute: typeof AnalyticsNewChartsRoute
   AnalyticsPatternsRoute: typeof AnalyticsPatternsRoute
   AnalyticsQualityRoute: typeof AnalyticsQualityRoute
   AnalyticsRevenueRoute: typeof AnalyticsRevenueRoute
@@ -603,6 +623,7 @@ const AnalyticsRouteChildren: AnalyticsRouteChildren = {
   AnalyticsCohortsRoute: AnalyticsCohortsRoute,
   AnalyticsExecutiveRoute: AnalyticsExecutiveRoute,
   AnalyticsLaboratoryRoute: AnalyticsLaboratoryRoute,
+  AnalyticsNewChartsRoute: AnalyticsNewChartsRoute,
   AnalyticsPatternsRoute: AnalyticsPatternsRoute,
   AnalyticsQualityRoute: AnalyticsQualityRoute,
   AnalyticsRevenueRoute: AnalyticsRevenueRoute,

@@ -8,6 +8,7 @@ import {
   Filter,
   HeartHandshake,
   LineChart,
+  Sparkles,
   Stethoscope,
   Syringe,
   Users,
@@ -46,6 +47,7 @@ const subSections = [
   { to: "/lgu/analytics/cohorts", label: "Cohort Builder", icon: Filter },
   { to: "/lgu/analytics/patterns", label: "Patterns", icon: Clock },
   { to: "/lgu/analytics/alerts", label: "Alerts", icon: Bell },
+  { to: "/analytics/new-charts", label: "New Charts", icon: Sparkles },
 ] as const;
 
 function LguAnalyticsLayout() {
