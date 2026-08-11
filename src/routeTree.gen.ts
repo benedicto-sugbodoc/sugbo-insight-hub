@@ -20,7 +20,9 @@ import { Route as AnalyticsCohortsRouteImport } from './routes/analytics.cohorts
 import { Route as AnalyticsExecutiveRouteImport } from './routes/analytics.executive'
 import { Route as AnalyticsLaboratoryRouteImport } from './routes/analytics.laboratory'
 import { Route as AnalyticsNewChartsRouteImport } from './routes/analytics.new-charts'
+import { Route as AnalyticsPatientExperienceRouteImport } from './routes/analytics.patient-experience'
 import { Route as AnalyticsPatternsRouteImport } from './routes/analytics.patterns'
+import { Route as AnalyticsPerformanceRouteImport } from './routes/analytics.performance'
 import { Route as AnalyticsQualityRouteImport } from './routes/analytics.quality'
 import { Route as AnalyticsRevenueRouteImport } from './routes/analytics.revenue'
 import { Route as LguAnalyticsRouteImport } from './routes/lgu.analytics'
@@ -95,9 +97,20 @@ const AnalyticsNewChartsRoute = AnalyticsNewChartsRouteImport.update({
   path: '/new-charts',
   getParentRoute: () => AnalyticsRoute,
 } as any)
+const AnalyticsPatientExperienceRoute =
+  AnalyticsPatientExperienceRouteImport.update({
+    id: '/patient-experience',
+    path: '/patient-experience',
+    getParentRoute: () => AnalyticsRoute,
+  } as any)
 const AnalyticsPatternsRoute = AnalyticsPatternsRouteImport.update({
   id: '/patterns',
   path: '/patterns',
+  getParentRoute: () => AnalyticsRoute,
+} as any)
+const AnalyticsPerformanceRoute = AnalyticsPerformanceRouteImport.update({
+  id: '/performance',
+  path: '/performance',
   getParentRoute: () => AnalyticsRoute,
 } as any)
 const AnalyticsQualityRoute = AnalyticsQualityRouteImport.update({
@@ -202,7 +215,9 @@ export interface FileRoutesByFullPath {
   '/analytics/executive': typeof AnalyticsExecutiveRoute
   '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
   '/analytics/new-charts': typeof AnalyticsNewChartsRoute
+  '/analytics/patient-experience': typeof AnalyticsPatientExperienceRoute
   '/analytics/patterns': typeof AnalyticsPatternsRoute
+  '/analytics/performance': typeof AnalyticsPerformanceRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/lgu/analytics': typeof LguAnalyticsRouteWithChildren
@@ -232,7 +247,9 @@ export interface FileRoutesByTo {
   '/analytics/executive': typeof AnalyticsExecutiveRoute
   '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
   '/analytics/new-charts': typeof AnalyticsNewChartsRoute
+  '/analytics/patient-experience': typeof AnalyticsPatientExperienceRoute
   '/analytics/patterns': typeof AnalyticsPatternsRoute
+  '/analytics/performance': typeof AnalyticsPerformanceRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/reports/$reportId': typeof ReportsReportIdRoute
@@ -263,7 +280,9 @@ export interface FileRoutesById {
   '/analytics/executive': typeof AnalyticsExecutiveRoute
   '/analytics/laboratory': typeof AnalyticsLaboratoryRoute
   '/analytics/new-charts': typeof AnalyticsNewChartsRoute
+  '/analytics/patient-experience': typeof AnalyticsPatientExperienceRoute
   '/analytics/patterns': typeof AnalyticsPatternsRoute
+  '/analytics/performance': typeof AnalyticsPerformanceRoute
   '/analytics/quality': typeof AnalyticsQualityRoute
   '/analytics/revenue': typeof AnalyticsRevenueRoute
   '/lgu/analytics': typeof LguAnalyticsRouteWithChildren
@@ -297,7 +316,9 @@ export interface FileRouteTypes {
     | '/analytics/executive'
     | '/analytics/laboratory'
     | '/analytics/new-charts'
+    | '/analytics/patient-experience'
     | '/analytics/patterns'
+    | '/analytics/performance'
     | '/analytics/quality'
     | '/analytics/revenue'
     | '/lgu/analytics'
@@ -327,7 +348,9 @@ export interface FileRouteTypes {
     | '/analytics/executive'
     | '/analytics/laboratory'
     | '/analytics/new-charts'
+    | '/analytics/patient-experience'
     | '/analytics/patterns'
+    | '/analytics/performance'
     | '/analytics/quality'
     | '/analytics/revenue'
     | '/reports/$reportId'
@@ -357,7 +380,9 @@ export interface FileRouteTypes {
     | '/analytics/executive'
     | '/analytics/laboratory'
     | '/analytics/new-charts'
+    | '/analytics/patient-experience'
     | '/analytics/patterns'
+    | '/analytics/performance'
     | '/analytics/quality'
     | '/analytics/revenue'
     | '/lgu/analytics'
@@ -466,11 +491,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnalyticsNewChartsRouteImport
       parentRoute: typeof AnalyticsRoute
     }
+    '/analytics/patient-experience': {
+      id: '/analytics/patient-experience'
+      path: '/patient-experience'
+      fullPath: '/analytics/patient-experience'
+      preLoaderRoute: typeof AnalyticsPatientExperienceRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
     '/analytics/patterns': {
       id: '/analytics/patterns'
       path: '/patterns'
       fullPath: '/analytics/patterns'
       preLoaderRoute: typeof AnalyticsPatternsRouteImport
+      parentRoute: typeof AnalyticsRoute
+    }
+    '/analytics/performance': {
+      id: '/analytics/performance'
+      path: '/performance'
+      fullPath: '/analytics/performance'
+      preLoaderRoute: typeof AnalyticsPerformanceRouteImport
       parentRoute: typeof AnalyticsRoute
     }
     '/analytics/quality': {
@@ -610,7 +649,9 @@ interface AnalyticsRouteChildren {
   AnalyticsExecutiveRoute: typeof AnalyticsExecutiveRoute
   AnalyticsLaboratoryRoute: typeof AnalyticsLaboratoryRoute
   AnalyticsNewChartsRoute: typeof AnalyticsNewChartsRoute
+  AnalyticsPatientExperienceRoute: typeof AnalyticsPatientExperienceRoute
   AnalyticsPatternsRoute: typeof AnalyticsPatternsRoute
+  AnalyticsPerformanceRoute: typeof AnalyticsPerformanceRoute
   AnalyticsQualityRoute: typeof AnalyticsQualityRoute
   AnalyticsRevenueRoute: typeof AnalyticsRevenueRoute
   AnalyticsIndexRoute: typeof AnalyticsIndexRoute
@@ -624,7 +665,9 @@ const AnalyticsRouteChildren: AnalyticsRouteChildren = {
   AnalyticsExecutiveRoute: AnalyticsExecutiveRoute,
   AnalyticsLaboratoryRoute: AnalyticsLaboratoryRoute,
   AnalyticsNewChartsRoute: AnalyticsNewChartsRoute,
+  AnalyticsPatientExperienceRoute: AnalyticsPatientExperienceRoute,
   AnalyticsPatternsRoute: AnalyticsPatternsRoute,
+  AnalyticsPerformanceRoute: AnalyticsPerformanceRoute,
   AnalyticsQualityRoute: AnalyticsQualityRoute,
   AnalyticsRevenueRoute: AnalyticsRevenueRoute,
   AnalyticsIndexRoute: AnalyticsIndexRoute,

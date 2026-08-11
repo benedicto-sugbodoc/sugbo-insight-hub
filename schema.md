@@ -1,3116 +1,711 @@
-# SugboDoc Mock-Data Schema Reference
+# SugboDoc Data Schema Reference
 
-SugboDoc has no real database. Every dashboard, report, and analytics tool in the
-prototype is fed by deterministic (seeded, non-`Math.random`) TypeScript mock-data
-files under `src/lib/analytics/**` and `src/lib/reports/**`, plus a handful of
-prop-type interfaces defined alongside the visualization components that consume
-them (`src/components/analytics/*.tsx`). This document treats every exported
-TypeScript `interface`/`type` with named fields in those files as if it were a
-database table: attributes become columns, and cross-file naming/shape overlaps
-are documented as informal, type-unenforced relationships. Trivial type aliases
-that only union or re-export another type (e.g. `KpiStatus`, `LabCategory`,
-`ComplianceCell`) are not given their own table; they are noted inline wherever
-they constrain a real column. File-local (non-`export`ed) interfaces — mainly the
-row shapes inside the two `reports/*.mock.tsx` files — are documented as tables
-too, but flagged as not exported/only inferable from usage.
+SugboDoc has no real database. Every dashboard, report and analytics tool in the
+prototype is fed by deterministic (seeded, non-`Math.random`) TypeScript data
+modules. This document is the schema reference for those modules.
 
-No column here was invented. Every attribute name and type below was read
-directly from the source file cited in that table's **Source** line. Where a
-relationship, constraint, or shape is not explicit in the code, this document
-says `Unknown` or `Needs verification` rather than guessing.
+There are currently **two** data models in the repository:
 
----
+| | Model | Location | Status |
+|---|---|---|---|
+| **1** | **Shared synthetic hospital dataset** | `src/lib/data/hospital/**` | **Current source of truth.** One relational dataset; every chart derives its numbers from it through the query layer, so figures reconcile across pages. |
+| **2** | Per-file independent mock data | `src/lib/analytics/**`, `src/lib/reports/**` | **Legacy — pending migration.** Still physically present and still powering most existing routes. Each file generates its own synthetic numbers in isolation, which is why (for example) two different payer-mix charts could historically show different totals. |
 
-## Known Cross-File Inconsistencies
+Model 1 exists because of exactly that reconciliation problem. It is the
+evolution of `src/lib/analytics/ph-constants.ts`, not a competitor to it: the
+canonical departments, physician roster, ICD-10 morbidity list, PhilHealth case
+rates, payer mix, membership distribution, department colours and patient-name
+generator are all **imported** from `ph-constants.ts` rather than redeclared.
 
-The following were independently verified against the source (not just assumed from the prompt):
+Model 2 is documented in condensed form in
+[Legacy Mock Data (Pending Migration)](#legacy-mock-data-pending-migration). Its
+tables have **not** been deleted and are **not** deprecated at runtime — they are
+simply no longer the reference schema for new work.
 
-1. **`claims.mock.ts`, `quality.mock.ts`, and `laboratory.mock.ts` do NOT import from `ph-constants.ts`.**
-   All three files have zero `import` statements pulling in `PH_DEPARTMENTS`, `PH_PHYSICIANS`, or `PH_TOP_DIAGNOSES`. Each defines its own local, independently-typed literal data instead:
-   - `claims.mock.ts` declares a local `physicians` array of 8 names that happens to exactly match the first 8 entries of `PH_PHYSICIANS` (duplicated literal, not imported), and a local `diagnoses` array of 20 `[icd10, description, caseType]` tuples that partially overlaps `PH_TOP_DIAGNOSES` codes (J18.9, E11.9, A09, N39.0, I10, K29.7) but also includes many codes `PH_TOP_DIAGNOSES` does not have (I21.9, N18.6, K35.8, C50.9 dup, I63.9, S72.0, J44.9, K80.2, M17.9, P07.3, B20, Z00.0, S06.0). It has no department field/list at all.
-   - `quality.mock.ts` declares a local `surgeons` array of 10 names that is a *near*-duplicate of `PH_PHYSICIANS` but not identical: it has "Dr. F. Aquino" (ph-constants has "Dr. F. Aguilar") and three names not present in `PH_PHYSICIANS` at all ("Dr. N. Bravo", "Dr. T. Cortes", "Dr. E. Villareal" — ph-constants has "Dr. E. Villaraza", a similar-but-different spelling). It also declares local `surgeonDepts` (4 items, a valid subset of `PH_DEPARTMENTS`) and `prescriptionDepts` (7 items) which uses `"Emergency"` where `PH_DEPARTMENTS` uses `"Emergency Medicine"` — a naming mismatch, not just a subset.
-   - `laboratory.mock.ts` has no physician roster and no diagnosis list (lab tests are named directly, not tied to ICD-10). Its local `orderingDepartments` list (`Emergency`, `ICU`, `Internal Medicine`, `Surgery`, `OB-Gyne`, `Pediatrics`) does not match `PH_DEPARTMENTS` naming either (`"OB-Gyne"` vs. canonical `"Obstetrics"`, `"Emergency"` vs. `"Emergency Medicine"`, plus `ICU` which isn't a `PH_DEPARTMENTS` value at all).
-
-2. **The `{id, label, value}` funnel/cascade shape is independently redeclared in at least 4 places instead of being imported.** `src/components/analytics/lgu-shared.tsx` exports a canonical `FlowStage` interface (`{id, label, value, suffix?}`) specifically so the shared `<StageFlow />` component has one prop type. None of the LGU mock files that produce funnel-shaped data import it:
-   - `lgu/maternal.mock.ts` → `AncFunnelStage {id, label, value}` (separate declaration)
-   - `lgu/ncd.mock.ts` → `CascadeStage {id, label, value}` (separate declaration)
-   - `lgu/tb.mock.ts` → `CascadeStage {id, label, value}` (separate declaration, same name as ncd's but a different interface in a different file)
-   - `lgu/konsulta.mock.ts` → `FlowStageLike {id, label, value}` (separate declaration; the "Like" suffix suggests the author knew it mirrored `FlowStage` but still didn't import it)
-   All four are structurally identical to `FlowStage` (minus the optional `suffix`), but TypeScript never enforces this — they are four independent type declarations.
-
-3. **Identically-named types declared separately in more than one file:**
-   - `PayerSlice` — declared in both `executive.mock.ts` (hospital) and `revenue.mock.ts`, **same shape** (`{payer, amount, color}`), not shared/imported between them.
-   - `PayerTrendPoint` — declared in both `executive.mock.ts` and `revenue.mock.ts`, **same shape** (`{month, philhealth, hmo, privatePay, scpwd, gsis, writeoff}`), not shared.
-   - `VolumePoint` — declared in the legacy `analytics.mock.ts` (`{date, admissions, discharges, edVisits}`) **and** in `executive.mock.ts` (`{month, inpatient, opd, emergency, daySurgery, priorInpatient}`) — **same name, different shape**.
-   - `DenialReason` — declared in `executive.mock.ts` (hospital, `{code, reason, count, valueAtRisk, action}`) **and** in `lgu/konsulta.mock.ts` (`{code, reason, count, action}` — no `valueAtRisk`) — **same name, different shape**.
-   - `CascadeStage` — declared separately in `lgu/ncd.mock.ts` and `lgu/tb.mock.ts`, **same shape** (`{id, label, value}`) (see item 2 above).
-   - `MorbidityRow` — declared in `lgu/executive.mock.ts` (exported, `{code, description, current, priorMonth, priorYear}`) **and** as a file-local (non-exported) interface in `reports/hospital.mock.tsx` (`{icd10, diagnosis, ageGroup, male, female, period}`) — **same name, different shape**, and one is exported while the other is file-local.
-
-4. **`hospital.mock.tsx` imports `phPatientName` from `ph-constants.ts` but never calls it.** Confirmed by grep: the only occurrence of `phPatientName` in the file is the `import` statement itself. The file instead defines and uses its own local `personName(i)` helper, built from a locally-declared `surnames`/`givenNames` pair. Unlike `phPatientName`, which is gender-aware (picks from `PH_FEMALE_NAMES` or `PH_MALE_NAMES` based on a passed `gender` argument), `personName` uses a single flat given-name list with no gender parameter at all — so it is not just a dead import, it's a behaviorally different generator. Note also that this same `surnames`/`givenNames` pair (Reyes, Dela Cruz, Garcia, Lim, Bautista, Tan, Santos, Pascual, Fernandez, Ramos / Maria, Juan, Ana, Paolo, Liza, Carlo, Grace, Noel, Divine, Ricky) is independently re-declared, verbatim, in `claims.mock.ts`, `laboratory.mock.ts` (surnames only, own given-name list), and forms the basis of `lgu/shared.mock.ts`'s `personName`/`patientId` pool — a second, distinct Filipino-name pool from the one in `ph-constants.ts` (`PH_SURNAMES`/`PH_FEMALE_NAMES`/`PH_MALE_NAMES`), duplicated across files rather than centralized.
-
-5. **`lgu/population.mock.ts` and `lgu/alerts.mock.ts` do not reference `BARANGAYS`/`BHC_LIST` at all.**
-   - `population.mock.ts` imports only `epiWeeks, seededRange` from `./shared.mock`. No `BARANGAYS` or `BHC_LIST` import or usage anywhere in the file. (It also redeclares its own local `months12` array rather than importing the one already exported from `shared.mock.ts` — a minor extra duplication found during verification.)
-   - `lgu/alerts.mock.ts` imports only the `AlertItem` type from `@/components/analytics/alert-center` — no import from `shared.mock.ts`. Barangay/BHC names that appear in this file (e.g. "Barangay Talamban", "Guadalupe RHU", "Inayawan (74%) and Sambag I (77%)", "Labangon and Pardo", "Basak Pardo Health Center", "Tisa") are hardcoded inside free-text `detail` strings only — not looked up from `BARANGAYS`/`BHC_FACILITIES` — so they are not type- or data-linked and could silently drift out of sync with the real barangay/BHC list.
+Documentation conventions used throughout: every attribute name and type below
+was read directly from the source file cited in that table's **Source** line.
+Where something is a modelling simplification rather than a fact about real
+Philippine hospital data, it is called out in **Notes** and repeated in
+[Data Generation Assumptions](#data-generation-assumptions).
 
 ---
 
-# Part 1 — Shared Reference / Constants
+# Part 1 — Shared Synthetic Hospital Dataset
 
-## File: `src/lib/analytics/ph-constants.ts`
+## Module map — `src/lib/data/hospital/`
 
-Canonical Philippine-healthcare-context constants shared across the hospital (Type A) mock files: 8 departments, 15-physician roster, 12-entry top-morbidity ICD-10 list, payer-mix and PhilHealth-membership distribution assumptions. Most exports here are `const` data arrays/objects or generator functions, not named `interface`/`type` declarations, so per the documentation rule only the one true interface (`IcdEntry`) gets a formal table. The rest are described in prose below and referenced as data sources from the "Relationships" section of tables that consume them.
+| File | Responsibility |
+|---|---|
+| `entities.ts` | All table interfaces and enumeration types. No logic. |
+| `reference.ts` | Every calibration constant and weighting table (the tuning knobs). |
+| `random.ts` | Seeded pseudo-random helpers (`seeded`, `seededRange`, `seededInt`, `weightedIndex`, `seededNormal`, `cumulativeIndex`, …). No `Math.random` anywhere. |
+| `time.ts` | UTC-only date helpers (`parseDate`, `toDate`, `toDateTime`, `ageOn`, `ageBand`, `daysBetween`, `monthKeyOf`, `monthLabel`). |
+| `generate.ts` | `generateHospitalDataset()` — builds every table in dependency order. |
+| `derive.ts` | The query/aggregation layer charts call (`revenueByDepartment`, `claimsByStatus`, …). |
+| `index.ts` | Public entry point: `getHospitalDataset()` (memoized lazy singleton), `fetchHospitalDataset()`, `resetHospitalDataset()`, plus re-exports of every type, constant and query helper. |
 
-## Table: IcdEntry
+Consumption pattern:
 
-**Description:** One ICD-10 diagnosis entry in the canonical Philippines top-morbidity list. Used to build `PH_TOP_DIAGNOSES`, which is imported by most hospital-side (Type A) mock files as the shared diagnosis pool.
+```ts
+import { getHospitalDataset, revenueByDepartment } from "@/lib/data/hospital";
 
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| code | string | — | ICD-10 code, e.g. `"J18.9"`. |
-| description | string | — | Full clinical description, e.g. `"Pneumonia, unspecified organism"`. |
-| commonName | string | — | Short everyday label for chart axes/labels, e.g. `"Pneumonia"`. |
+const dataset = getHospitalDataset();          // built once, then memoized
+const rows = revenueByDepartment(dataset, { from: "2026-01-01" });
+```
 
-### Relationships
-- `PH_TOP_DIAGNOSES: IcdEntry[]` is the 12-entry canonical export. Consumed (imported) by `executive.mock.ts`, `clinical.mock.ts` (as `ICD_CODES`), `cohort.mock.ts`, `temporal.mock.ts` (department only, not diagnoses), `analytics.mock.ts` (legacy), `reports/hospital.mock.tsx`, and `lgu/jurisdiction.mock.ts` (`jurisdictionMorbidity()`). **Not** imported by `claims.mock.ts`, `quality.mock.ts`, or `laboratory.mock.ts` (see Known Cross-File Inconsistencies #1).
-- `PH_DIAGNOSIS_CASE_RATES: Record<string, number>` is keyed by `IcdEntry.code` and gives the PhilHealth case rate in PHP for each diagnosis in `PH_TOP_DIAGNOSES`. This is an informal FK: the record keys are expected to match `PH_TOP_DIAGNOSES[].code` but nothing in the type system enforces it.
+`getHospitalDataset()` follows the repo's existing `getXData()` convention (see
+`src/lib/analytics/executive.mock.ts`), with the addition of a module-level
+`cached` singleton because this dataset is shared by every page rather than
+owned by one dashboard.
 
-### Source
-`src/lib/analytics/ph-constants.ts`, exported as `PH_TOP_DIAGNOSES: IcdEntry[]`.
+## Row counts as generated
 
-### Notes
-- `PhDepartment` (`type PhDepartment = (typeof PH_DEPARTMENTS)[number]`) is a trivial type alias over the 8-value `PH_DEPARTMENTS` string-literal tuple (`Internal Medicine, Surgery, Obstetrics, Pediatrics, Orthopedics, Cardiology, Emergency Medicine, Oncology`) — not given its own table. `clinical.mock.ts` re-derives an equivalent local alias `Department` from its own `PALETTE_DEPTS = PH_DEPARTMENTS` re-export.
-- Other exported consts in this file with fixed field shapes but **no backing interface/type declaration** (so, per the documentation rule, not tabled as their own entities): `PH_DEPARTMENT_COLORS: Record<PhDepartment, string>`, `PH_PHYSICIANS: readonly string[]` (15 names), `PH_SURNAMES`/`PH_FEMALE_NAMES`/`PH_MALE_NAMES: string[]`, `PH_PAYER_MIX` (object literal with keys `philhealth, hmo, privatePay, scpwd, gsis, writeoff`, all `number` fractions), `PH_SCPWD_PATIENT_RATE: number`, `PH_MEMBERSHIP_DISTRIBUTION: {category: string; share: number; color: string}[]`, `KONSULTA_EKAS_RATE: number`, `INPATIENT_GROSS_CHARGE_RANGE: [number, number]`, `TARGET_ADMISSIONS_PER_MONTH: number`.
-- `phPatientName(i: number, gender: "male" | "female"): string` is the canonical gender-aware patient-name generator. It is imported (and actually called) correctly by `executive.mock.ts`, `clinical.mock.ts`, `revenue.mock.ts`, and `cohort.mock.ts`. It is imported but never called by `reports/hospital.mock.tsx` (see Known Cross-File Inconsistencies #4).
-
----
-
-## File: `src/lib/analytics/lgu/shared.mock.ts`
-
-Shared mock-data building blocks for the LGU / City Health Center module (Type B): the 15-barangay / 5-BHC geography, month/epi-week label arrays, the seeded pseudo-random helpers, and a second (non-`ph-constants`) name-generator pool used across most LGU files.
-
-## Table: Barangay
-
-**Description:** One barangay in the 15-barangay Cebu City catchment, clustered under one of 5 physical Barangay Health Center (BHC) facilities. This is the geographic backbone of nearly every LGU (Type B) dashboard.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | PK | Slug id, e.g. `"brgy-lahug"`. |
-| name | string | — | Display name, e.g. `"Lahug"`. |
-| population | number | — | Static population figure for this barangay. |
-| bhc | string | — | Display name of the serving BHC facility, e.g. `"Lahug Health Center"`. |
-| bhcId | string | FK -> BHC_FACILITIES.id (informal) | Slug id of the serving BHC; matches an entry in the local `BHC_FACILITIES` const array but is not type-enforced. |
-| phn | string | — | Name/credential of the assigned Public Health Nurse, e.g. `"N. Villaraza, RN"`. |
-
-### Relationships
-- `BARANGAYS: Barangay[]` is the 15-row canonical export, imported throughout the LGU (Type B) mock files (`executive.mock.ts`, `maternal.mock.ts`, `ncd.mock.ts`, `tb.mock.ts`, `lgu/cohort.mock.ts`, `reports/lgu.mock.tsx`) and NOT imported by `population.mock.ts` or `lgu/alerts.mock.ts` (see Known Cross-File Inconsistencies #5).
-- `bhc`/`bhcId` informally reference the local `BHC_FACILITIES` const array (`{id, name}[]`, 5 entries — this array has no backing interface/type, so it is not its own table). `BHC_LIST = BHC_FACILITIES.map(b => b.name)` is the derived 5-name array used for BHC-level (rather than barangay-level) charts, imported by `executive.mock.ts`, `konsulta.mock.ts`, `lgu/temporal.mock.ts`, and `reports/lgu.mock.tsx`.
-- `TOTAL_POPULATION = BARANGAYS.reduce(...)` is a derived constant, not a table.
-
-### Source
-`src/lib/analytics/lgu/shared.mock.ts`, exported as `BARANGAYS: Barangay[]`.
-
-### Notes
-- This file also exports `months12: string[]` (12 labels, "Sep 25" .. "Aug 26") and `epiWeeks: string[]` (12 labels, "EW20".."EW31") — plain string arrays, no backing type, used widely across LGU mock files as the canonical time axis. `lgu/population.mock.ts` redeclares its own local `months12` instead of importing this one (see Known Cross-File Inconsistencies #5 note).
-- `seeded(i, salt)` / `seededRange(i, min, max, salt)` are the shared deterministic pseudo-random helpers (sine-based, not `Math.random`) reused (via re-declaration, not import, in most files) across the whole codebase.
-- `personName(i): string` and `patientId(i): string` are this file's own name/ID generator pair, built from a locally-declared 16-surname / 10-given-name pool that is distinct from `ph-constants.ts`'s `PH_SURNAMES`/`PH_FEMALE_NAMES`/`PH_MALE_NAMES` (see Known Cross-File Inconsistencies #4). `personName` is not gender-aware. Imported and used by `maternal.mock.ts`, `ncd.mock.ts`, and `lgu/cohort.mock.ts`.
+| Table | Rows | Notes |
+|---|---|---|
+| `Department` | 8 | One per `PH_DEPARTMENTS` entry. |
+| `Doctor` | 20 | 15 from `PH_PHYSICIANS` + 5 generated. |
+| `ServiceCatalogItem` | 58 | 8 Consultation, 12 Laboratory, 7 Imaging, 12 Surgery, 6 Room & Board, 8 Pharmacy, 5 Emergency Care. |
+| `Patient` | 800 | |
+| `Encounter` | 1,802 | Target 1,800; ±2 from per-department rounding. |
+| `EncounterService` | 6,168 | 1–6 lines per encounter, mean 3.42. |
+| `Billing` | 1,802 | Strictly 1:1 with `Encounter`. |
+| `PhilHealthClaim` | 1,101 | 61.1% of encounters (target band 55–65%). |
+| `PWDDiscount` | 105 | Only for the 46 PWD patients' qualifying bills. |
+| `Feedback` | 634 | 35.2% of encounters. |
+| `MonthMeta` | 12 | 2025-09 … 2026-08 (last bucket is month-to-date). |
 
 ---
 
-# Part 2 — Shared Component Prop Types
+## Table: Department
 
-These interfaces live in `src/components/analytics/*.tsx`, not in a `.mock.ts` file, but several hospital and LGU mock files import their types directly (rather than redeclaring an equivalent shape), so they are documented here as shared "lookup" tables.
-
-## Table: HourWeekdayCell
-
-**Description:** One cell of an hour-of-day (0–23) × weekday (Mon–Sun) visit-volume grid, used by the Temporal Pattern Analysis heatmap tool on both the hospital and LGU sides.
+**Description:** One clinical department. A dimension table with exactly 8 rows, one per entry in `PH_DEPARTMENTS`.
 
 | Attribute | Data Type | Key | Description |
 |---|---|---|---|
-| day | string | — | Weekday label, one of `"Mon".."Sun"`. |
-| dayIndex | number | — | 0-based weekday index (0 = Mon .. 6 = Sun). |
-| hour | number | — | Hour of day, 0–23. |
-| value | number | — | Visit volume for that day/hour cell. |
+| id | string | PK | `"DEP-01"` … `"DEP-08"`, positionally aligned to `PH_DEPARTMENTS`. |
+| name | `PhDepartment` | UQ | Department name, imported literal union from `ph-constants.ts`. |
+| category | `"Medical" \| "Surgical" \| "Diagnostic" \| "Emergency"` | — | Service-line grouping. |
+| bedCapacity | number | — | Staffed inpatient beds (25–90). |
+| baseVolumeWeight | number | — | Relative multiplier used to allocate monthly encounter volume across departments (0.5–1.9). |
+| baseRevenueIndex | number | — | Relative revenue-per-case multiplier applied to service unit prices (0.6–2.2). |
 
 ### Relationships
-- Produced by `getTemporalData()` in `src/lib/analytics/temporal.mock.ts` (hospital, `TemporalDataset.opd` / `.emergency`) and by `getLguTemporalData()` in `src/lib/analytics/lgu/temporal.mock.ts` (`LguTemporalDataset.konsulta` / `.programs`). Both mock files import this type rather than redeclaring it — one of the few cases of genuine type sharing in the codebase.
+- `Doctor.primaryDepartmentId` -> `Department.id` (many-to-one).
+- `ServiceCatalogItem.departmentId` -> `Department.id` (many-to-one).
+- `Encounter.departmentId` -> `Department.id` (many-to-one). **This is the field all revenue/volume attribution uses.**
+- `Feedback.departmentId` -> `Department.id`, denormalized from the encounter.
+- `name` is the key into `PH_DEPARTMENT_COLORS` (`ph-constants.ts`), which is how the derivation layer supplies chart colours.
 
 ### Source
-`src/components/analytics/temporal-heatmap.tsx`, exported interface, consumed by `HourWeekdayHeatmap()`.
+`src/lib/data/hospital/generate.ts`, `buildDepartments()`. Values come from `DEPARTMENT_PROFILES` in `src/lib/data/hospital/reference.ts`.
 
 ### Notes
-None.
+- The `"Diagnostic"` category is declared in the union but **no current row uses it** — none of the 8 canonical `PH_DEPARTMENTS` is a diagnostic service line. It is retained for a future lab/imaging department without a breaking type change.
+- `bedCapacity` is a realistic Level 3 facility attribute and is deliberately **not** used as an occupancy denominator; see the note on `volumeByDepartment` in [Derivation layer](#derivation-layer--derivets).
+- `DEPARTMENT_PROFILES` also carries `baseLosDays` and `npsBaseline`, which shape encounters and feedback but are not surfaced as `Department` columns.
 
-## Table: AlertItem
+## Table: Doctor
 
-**Description:** One alert/notification row shown in the Alert & Notification Center tool, shared verbatim by the hospital and LGU alert mock files.
+**Description:** One attending physician. Dimension table, 20 rows.
 
 | Attribute | Data Type | Key | Description |
 |---|---|---|---|
-| id | string | PK | Alert id, e.g. `"AL-H01"` (hospital) / `"AL-L01"` (LGU). |
-| severity | AlertSeverity (`"critical" \| "warning" \| "info"`) | — | Severity tier; drives icon/color and default sort. |
-| title | string | — | One-line alert headline. |
-| detail | string | — | Longer free-text explanation. |
-| module | string | — | Source module/dashboard label, e.g. `"Census"`, `"Claims"`, `"Surveillance"`. |
-| minutesAgo | number | — | Minutes since the alert fired; drives the relative-time label and default sort order. |
-| actionLabel | string | — | Label for the primary action button in the drill-down drawer. |
-| actionHref | string (optional) | — | Route the action button links to, if any. |
+| id | string | PK | `"DOC-01"` … `"DOC-20"`. |
+| name | string | — | `"Dr. A. Villanueva"` style. First 15 are `PH_PHYSICIANS` verbatim. |
+| primaryDepartmentId | string | FK -> Department.id | The department this physician is assigned to. |
+| yearsExperience | number | — | Drawn 3–34; 6–33 observed. |
+| monthlyCaseCapacity | number | — | Soft monthly panel size (33–79 observed); rises with `yearsExperience`. Used only by `doctorProductivity()`. |
 
 ### Relationships
-- `hospitalAlerts` / `hospitalAlertRefreshPool: AlertItem[]` in `src/lib/analytics/alerts.mock.ts`.
-- `lguAlerts` / `lguAlertRefreshPool: AlertItem[]` in `src/lib/analytics/lgu/alerts.mock.ts`.
-- Both mock files import `AlertItem` (and, implicitly, `AlertSeverity`) from this component file rather than redeclaring it.
+- `Encounter.primaryDoctorId` -> `Doctor.id`. Every encounter's doctor is always drawn from that encounter's own department, so `Encounter.departmentId === Doctor.primaryDepartmentId` holds for all rows.
 
 ### Source
-`src/components/analytics/alert-center.tsx`, exported interface, consumed by `AlertCenter()`.
+`src/lib/data/hospital/generate.ts`, `buildDoctors()` / `buildDoctorNames()` / `allocateDoctorsPerDepartment()`.
 
 ### Notes
-- `AlertSeverity = "critical" | "warning" | "info"` is a trivial type alias, not given its own table.
+- The 5 extra doctors beyond `PH_PHYSICIANS` are built from `PH_SURNAMES` entries the canonical roster does not already use, so no name pool is duplicated or invented.
+- Doctors are allocated one-per-department first, then the remaining 12 by `baseVolumeWeight` (largest-remainder method). Result: Internal Medicine 4, Emergency Medicine 3, Pediatrics 3, Surgery 2, Obstetrics 2, Orthopedics 2, Cardiology 2, Oncology 2.
 
-## Table: FlowStage
+## Table: ServiceCatalogItem
 
-**Description:** Shared `{id, label, value}`-shaped prop type for the `<StageFlow />` funnel/cascade-of-care visualization primitive used across several LGU dashboards (ANC funnel, HTN/DM cascades, TB cascade, Konsulta enrollment funnel).
+**Description:** One billable line in the chargemaster. Dimension table, 58 rows. (The conceptual entity is "ServiceCatalog"; the TypeScript interface is named `ServiceCatalogItem` because the dataset field holding them is `services`.)
 
 | Attribute | Data Type | Key | Description |
 |---|---|---|---|
-| id | string | — | Stable stage identifier. |
-| label | string | — | Stage display label. |
-| value | number | — | Stage value (count), used to compute bar width and conversion percentages. |
-| suffix | string (optional) | — | Optional string appended after the formatted value (e.g. a unit). |
+| id | string | PK | `"SVC-001"` … `"SVC-058"`. |
+| name | string | — | e.g. `"Complete Blood Count"`, `"Cesarean Section"`. |
+| category | `"Consultation" \| "Laboratory" \| "Imaging" \| "Surgery" \| "Room & Board" \| "Pharmacy" \| "Emergency Care"` | — | Charge category. |
+| departmentId | string | FK -> Department.id | Owning cost-centre department. |
+| basePriceMin | number | — | Lower bound of the catalogue price band, PHP. |
+| basePriceMax | number | — | Upper bound of the catalogue price band, PHP. |
+| philhealthCaseRateEligible | boolean | — | Whether the line sits inside a PhilHealth case-rate bundle. |
+
+Price bands by category (PHP, from `SERVICE_PRICE_RANGES`):
+
+| Category | min | max |
+|---|---|---|
+| Consultation | 350 | 900 |
+| Pharmacy | 120 | 4,500 |
+| Laboratory | 250 | 2,500 |
+| Emergency Care | 900 | 8,000 |
+| Room & Board (per day) | 1,200 | 6,500 |
+| Imaging | 900 | 12,000 |
+| Surgery | 18,000 | 160,000 |
 
 ### Relationships
-- **Not imported** by any LGU mock file that produces `{id, label, value}`-shaped data. `AncFunnelStage` (`maternal.mock.ts`), `CascadeStage` (`ncd.mock.ts`, `tb.mock.ts`), and `FlowStageLike` (`konsulta.mock.ts`) are all independently-declared, structurally-compatible near-duplicates of this type. See Known Cross-File Inconsistencies #2.
+- `EncounterService.serviceId` -> `ServiceCatalogItem.id`.
+- `category` drives PWD-discount eligibility via `PWD_QUALIFYING_CATEGORIES`.
 
 ### Source
-`src/components/analytics/lgu-shared.tsx`, exported interface, consumed by `StageFlow()`.
+`src/lib/data/hospital/generate.ts`, `buildServices()`. Names/categories from `SERVICE_SEEDS`, prices from `SERVICE_PRICE_RANGES`, both in `reference.ts`.
 
 ### Notes
-None.
+- **Simplification:** ancillary categories (Laboratory, Imaging, Pharmacy, Room & Board) have no single clinical owner, so all 33 of them are parked on the Internal Medicine department id as a shared cost centre. This field is only used for service-mix plausibility. **Revenue is never attributed through `ServiceCatalogItem.departmentId`** — every revenue helper attributes through `Encounter.departmentId`.
+- `philhealthCaseRateEligible` is `false` for all Consultation rows (professional fees are billed outside the case-rate bundle), `true` for Laboratory / Imaging / Surgery / Room & Board / Emergency Care, and seeded against a 0.6 threshold for Pharmacy rows (formulary vs. non-formulary drugs), which lands at 4 of 8 in practice.
 
-## Table: BarangayDatum
+## Table: Patient
 
-**Description:** Prop shape for one tile of the stylized `<BarangayChoropleth />` grid (a CSS-grid map substitute — no external mapping dependency).
+**Description:** One registered patient. Dimension table, 800 rows.
 
 | Attribute | Data Type | Key | Description |
 |---|---|---|---|
-| id | string | — | Barangay/tile identifier. |
-| name | string | — | Display name shown on the tile. |
-| value | number | — | Numeric metric value used to compute the color ramp position. |
-| display | string | — | Pre-formatted display string (e.g. `"62%"`) shown under the name. |
-| alert | boolean (optional) | — | If true, tile is forced to the critical/outbreak color regardless of `value`. |
+| id | string | PK | `"PT-0001"` … `"PT-0800"`. |
+| name | string | — | From `phPatientName(i, gender)` in `ph-constants.ts` (gender-aware). |
+| gender | `"male" \| "female"` | — | 52% female. |
+| birthDate | string (`"YYYY-MM-DD"`) | — | Derived from a banded age draw against the dataset anchor date. |
+| isPWD | boolean | — | Person-with-disability flag; ~6% true. |
+| philhealthCategory | `"Employed" \| "Indigent/4Ps" \| "Self-Earning" \| "Sponsored" \| "Lifetime" \| "OFW/Other" \| "Senior Citizen" \| "Non-Member/Self-Pay"` | — | PhilHealth classification. |
+| registrationDate | string (`"YYYY-MM-DD"`) | — | Always on or before the patient's earliest encounter date. |
 
 ### Relationships
-- Not produced directly by any mock file read for this document. Consuming route/page components appear to construct `BarangayDatum[]` values inline from `BarangayMetricSet[]` (from `lgu/executive.mock.ts`) at render time. **Needs verification** — the exact page component that maps `BarangayMetricSet` → `BarangayDatum` was not in scope for this document (only `.mock.ts`/`.mock.tsx` files and the specific component files listed were read in full).
+- `Encounter.patientId` -> `Patient.id`.
+- `Feedback.patientId` -> `Patient.id`, denormalized from the encounter.
+- `philhealthCategory` and `isPWD` jointly drive `Encounter.payerType` (see `PAYER_CATEGORY_MULTIPLIER`).
+- `isPWD` gates `Billing.pwdDiscountAmount` and the entire `PWDDiscount` table.
 
 ### Source
-`src/components/analytics/lgu-shared.tsx`, exported interface, consumed by `BarangayChoropleth()`.
+`src/lib/data/hospital/generate.ts`, `buildPatients()`; registration reconciled by `reconcileRegistrationDates()`.
 
 ### Notes
-Exported but not directly referenced by any mock file in scope — documented because it is a named, exported interface in an in-scope component file.
+- The first six category values are taken **verbatim** from `PH_MEMBERSHIP_DISTRIBUTION` in `ph-constants.ts` (they are that file's real names, which differ from the wording used in earlier planning docs). Two values are **added**: `"Senior Citizen"` and `"Non-Member/Self-Pay"`, because `PH_MEMBERSHIP_DISTRIBUTION` describes only *enrolled members* and therefore cannot express either concept.
+- **Invariant:** `"Senior Citizen"` and `"Lifetime"` are only ever assigned to patients whose derived age at the anchor date is >= 60. Verified: 0 violations.
+- **Invariant:** `registrationDate <= min(admitDate)` for every patient with encounters. Verified: 0 violations.
 
-## Table: CalendarDay
+## Table: Encounter
 
-**Description:** One day cell of the eKAS-submission calendar heatmap (Konsulta PhilHealth claims cutoff tracker).
+**Description:** One patient visit or admission. The grain of the entire fact model. 1,802 rows across a 12-month window ending on the anchor date.
 
 | Attribute | Data Type | Key | Description |
 |---|---|---|---|
-| date | number | — | Day-of-month number (1–31). |
-| weekday | number | — | 0 = Sunday .. 6 = Saturday. |
-| submitted | number | — | Count of eKAS claims submitted that day. |
-| pending | number | — | Count of eKAS claims still pending that day. |
-| isCutoff | boolean (optional) | — | True if this date is the PhilHealth submission cutoff day. |
-| isPast | boolean | — | True if the date is on/before the mocked "today" (Aug 7, 2026 in `konsulta.mock.ts`). Required field, not optional. |
+| id | string | PK | `"ENC-00001"` … `"ENC-01802"`, numbered in chronological admit order. |
+| patientId | string | FK -> Patient.id | |
+| departmentId | string | FK -> Department.id | |
+| primaryDoctorId | string | FK -> Doctor.id | Always a doctor of `departmentId`. |
+| encounterType | `"Inpatient" \| "Outpatient" \| "Emergency" \| "Day Surgery"` | — | |
+| admissionType | `"Emergency" \| "Elective" \| "Transfer-in" \| "Newborn" \| null` | — | Non-null **iff** `encounterType === "Inpatient"`. |
+| admitDateTime | string (ISO-8601 UTC) | — | Full timestamp; hour/weekday carry real signal. |
+| dischargeDateTime | string (ISO-8601 UTC) \| null | — | `null` for encounters still admitted at the anchor date (9 rows). |
+| losDays | number | — | Whole days admit -> discharge. For still-admitted rows it is the **running** LOS to the anchor date. 0 for same-day encounters. |
+| diagnosisCode | string \| null | FK -> `PH_TOP_DIAGNOSES[].code` | `null` for 3.1% of rows (incomplete coding). |
+| disposition | `"Recovered" \| "Improved" \| "Transferred" \| "HAMA" \| "Expired"` | — | |
+| readmitted30d | boolean | — | **Computed** from the patient's real prior encounter history, not rolled. |
+| payerType | `"philhealth" \| "hmo" \| "privatePay" \| "scpwd" \| "gsis" \| "writeoff"` | — | `keyof typeof PH_PAYER_MIX`. |
 
 ### Relationships
-- Produced by `buildCalendar()` inside `getKonsultaData()` in `src/lib/analytics/lgu/konsulta.mock.ts`, which imports this type directly rather than redeclaring it.
+- 1:1 with `Billing` (`Billing.encounterId`).
+- 1:N with `EncounterService`.
+- 0..1 with `PhilHealthClaim` — exists only when `payerType ∈ {philhealth, scpwd}`.
+- 0..1 with `PWDDiscount` — exists only when the patient `isPWD` and there is a qualifying amount.
+- 0..1 with `Feedback`.
+- `diagnosisCode` is also the key into `PH_DIAGNOSIS_CASE_RATES` for the PhilHealth deduction and claim case rate.
 
 ### Source
-`src/components/analytics/lgu-shared.tsx`, exported interface, consumed by `CalendarHeatmap()`.
+`src/lib/data/hospital/generate.ts`, `buildEncounters()`; readmission flags by `applyReadmissionFlags()`.
 
 ### Notes
-None.
+- **Readmission derivation:** an Inpatient or Emergency encounter is flagged when the *same patient* has a prior **Inpatient** encounter with a non-null discharge falling within the preceding 30 days. Only the most recent prior inpatient stay is considered. Observed rate: 107 / 989 eligible = 10.8%.
+- **Still-admitted rows** keep a `disposition` value; for those 9 rows it reads as current clinical status rather than a final discharge disposition. Helpers that need true discharge outcomes filter on `dischargeDateTime !== null`.
+- Encounters admitted late on the anchor date may have a discharge timestamp a few hours past it; this is intentional and does not affect month bucketing (which uses `admitDateTime`).
+
+## Table: EncounterService
+
+**Description:** One charge line on an encounter. 6,168 rows; 1–6 lines per encounter (mean 3.42, min 1, max 6, zero encounters with no lines).
+
+| Attribute | Data Type | Key | Description |
+|---|---|---|---|
+| id | string | PK | `"ES-000001"` … |
+| encounterId | string | FK -> Encounter.id | |
+| serviceId | string | FK -> ServiceCatalogItem.id | |
+| quantity | number | — | Room & Board = length of stay; Consultation = `ceil(los/2)` capped at 6; Pharmacy 1–4; everything else 1. |
+| unitPrice | number | — | PHP, whole pesos. |
+| lineTotal | number | — | `round2(unitPrice * quantity)`. |
+
+### Relationships
+- `SUM(lineTotal)` per encounter is **exactly** `Billing.grossCharges`. Verified: dataset-wide totals reconcile to the peso across `encounterServices`, `billings`, `revenueByDepartment()`, `revenueByMonth()` and `payerMix()` (all 68,768,179).
+
+### Source
+`src/lib/data/hospital/generate.ts`, `buildEncounterServices()`.
+
+### Notes
+- Service selection is constrained by encounter type: **Outpatient encounters never receive a Surgery-category line**; Inpatient encounters always start with a Room & Board line; Emergency encounters always start with an Emergency Care line; Day Surgery always carries a Surgery line.
+- Ancillary picks are diagnosis-aware — e.g. Sputum GeneXpert is heavily weighted only for `A15.0`, Mammography only for female patients with `C50.9` or in Oncology, 2D Echo for Cardiology, MRI Lumbar for Orthopedics/`M54.5`, Insulin Pack for `E11.9`, Anesthesia Drugs only when a Surgery line exists.
+- `unitPrice` is a seeded draw inside the catalogue band, biased upward by the encounter department's `baseRevenueIndex`, then multiplied by a per-case variance of 0.94–1.06 so no two identical services bill identically.
+
+## Table: Billing
+
+**Description:** One bill. Exactly 1:1 with `Encounter`; 1,802 rows.
+
+| Attribute | Data Type | Key | Description |
+|---|---|---|---|
+| id | string | PK | `"BIL-00001"` … |
+| encounterId | string | FK -> Encounter.id, UQ | |
+| grossCharges | number | — | Sum of that encounter's `EncounterService.lineTotal`. |
+| philhealthDeduction | number | — | Case-rate/package benefit applied. 0 when the payer carries no PhilHealth benefit. |
+| pwdDiscountAmount | number | — | **Always 0 unless the encounter's patient has `isPWD === true`.** |
+| netPayable | number | — | `max(0, grossCharges - philhealthDeduction - pwdDiscountAmount)`. |
+| amountPaid | number | — | |
+| balance | number | — | `netPayable - amountPaid`, for every status including `Write-off`. |
+| paymentStatus | `"Paid" \| "Partial" \| "Pending" \| "Overdue" \| "Write-off"` | — | |
+| paymentDate | string (`"YYYY-MM-DD"`) \| null | — | `null` whenever `amountPaid === 0`, plus ~4% missingness on Partial bills. |
+| payerType | `PayerType` | — | Mirrors `Encounter.payerType` exactly. |
+
+### Relationships
+- `PhilHealthClaim.billingId` -> `Billing.id`.
+- `PWDDiscount.billingId` -> `Billing.id`.
+
+### Source
+`src/lib/data/hospital/generate.ts`, `buildBillings()` (which also emits `PWDDiscount` rows so the two can never disagree).
+
+### Notes
+- **Invariant (the supervisor's explicit example):** `pwdDiscountAmount > 0` implies `patient.isPWD === true`. Verified: 0 violations across 1,802 bills and 105 discount rows.
+- `philhealthDeduction` logic: Outpatient uses the flat `KONSULTA_EKAS_RATE` (1,500) capped at 90% of gross; Inpatient and Day Surgery use the full `PH_DIAGNOSIS_CASE_RATES[diagnosisCode]`; Emergency uses 60% of it. When `diagnosisCode` is `null` the deduction is **0** — a real downstream consequence of the incomplete-coding rate, not a separate roll.
+- Observed status mix: Paid 1,375 / Partial 177 / Pending 105 / Overdue 124 / Write-off 21.
+- `balance` is retained for `Write-off` rows so AR-exposure charts can still show written-off value.
+
+## Table: PhilHealthClaim
+
+**Description:** One PhilHealth claim. Generated **only** for encounters whose `payerType` carries a PhilHealth benefit (`philhealth` or `scpwd`). 1,101 rows = 61.1% of encounters.
+
+| Attribute | Data Type | Key | Description |
+|---|---|---|---|
+| id | string | PK | `"CLM-00001"` … |
+| encounterId | string | FK -> Encounter.id | |
+| billingId | string | FK -> Billing.id | |
+| caseType | `"Medical Case" \| "Surgical Case" \| "Maternity Package" \| "Konsulta Package" \| "Catastrophic (Z-Benefit)"` | — | Derived from encounter type, department, diagnosis and whether a Surgery line exists. |
+| caseRateAmount | number | — | `PH_DIAGNOSIS_CASE_RATES[diagnosisCode]`, or `KONSULTA_EKAS_RATE` for Konsulta packages, or 0 when the diagnosis is uncoded. |
+| cr1Amount | number | — | Facility component, 70% of `caseRateAmount`. |
+| cr2Amount | number | — | Professional-fee component, the remaining 30%. |
+| patientShare | number | — | Equals the linked `Billing.netPayable`. |
+| submissionDate | string (`"YYYY-MM-DD"`) | — | Discharge + 2–25 days, clamped to the anchor date. For `Drafted` claims this is the preparation date, not a filing date. |
+| status | `"Drafted" \| "Submitted" \| "Under Review" \| "Approved" \| "Denied" \| "Remitted"` | — | |
+| denialCode | string \| null | — | Non-null **iff** `status === "Denied"`. Values `"DN-01"`…`"DN-07"`. |
+| remittanceDate | string (`"YYYY-MM-DD"`) \| null | — | Non-null **iff** `status === "Remitted"`. |
+| remittanceAmount | number \| null | — | Non-null **iff** `status === "Remitted"`; 85–100% of `caseRateAmount`. |
+| appealFiledDate | string (`"YYYY-MM-DD"`) \| null | — | Non-null only for appealed denials (~55% of denials). |
+| appealStatus | `"Filed" \| "Under Appeal" \| "Won" \| "Lost" \| null` | — | Non-null only when `status === "Denied"`. |
+| amountRecovered | number \| null | — | Non-null **iff** `appealStatus === "Won"`; 60–100% of `caseRateAmount`. |
+
+Denial code dictionary (`CLAIM_DENIAL_REASONS` in `reference.ts`):
+
+| Code | Reason |
+|---|---|
+| DN-01 | Incomplete Claim Signature Form (CSF) |
+| DN-02 | Member eligibility / missing PhilHealth ID |
+| DN-03 | Late filing beyond the 60-day window |
+| DN-04 | Non-compensable condition for the case rate claimed |
+| DN-05 | Duplicate claim already on file |
+| DN-06 | Missing laboratory / imaging attachment |
+| DN-07 | Attending physician accreditation lapsed |
+
+### Relationships
+- Strictly 0..1 per encounter, and only ever for a PhilHealth-bearing encounter. Verified: 0 claims reference a self-pay / HMO-only / GSIS encounter.
+
+### Source
+`src/lib/data/hospital/generate.ts`, `buildClaims()`.
+
+### Notes
+- **Invariants verified (0 violations each):** `denialCode !== null` iff Denied; `remittanceDate !== null` iff Remitted; `appealStatus !== null` only when Denied; `amountRecovered !== null` only when `appealStatus === "Won"`.
+- Encounters with a `null` `diagnosisCode` produce a claim stuck in `"Drafted"` with `caseRateAmount === 0` — the claim exists but cannot be filed. 25 such rows.
+- Observed status mix: Drafted 25 / Submitted 124 / Under Review 89 / Approved 238 / Denied 101 / Remitted 524.
+
+## Table: PWDDiscount
+
+**Description:** One applied PWD discount. Generated **only** where `patient.isPWD === true` and the bill has a qualifying amount. 105 rows across 46 PWD patients.
+
+| Attribute | Data Type | Key | Description |
+|---|---|---|---|
+| id | string | PK | `"PWD-0001"` … |
+| encounterId | string | FK -> Encounter.id | |
+| billingId | string | FK -> Billing.id | |
+| qualifyingAmount | number | — | Sum of `lineTotal` on discount-qualifying service categories. |
+| discountRate | number | — | Constant `0.20` (RA 10754). |
+| discountAmount | number | — | `round2(qualifyingAmount * 0.20)`. Always equals `Billing.pwdDiscountAmount`. |
+| vatExemptAmount | number | — | VAT component backed out of the qualifying amount: `qualifyingAmount * 0.12 / 1.12`. |
+
+### Relationships
+- `discountAmount` is computed in the same pass as `Billing.pwdDiscountAmount`, from the same `qualifyingAmount`, so the two tables can never disagree.
+
+### Source
+`src/lib/data/hospital/generate.ts`, `buildBillings()`.
+
+### Notes
+- **Simplification:** qualifying categories are Consultation, Laboratory, Imaging, Surgery, Pharmacy and Emergency Care. **Room & Board (accommodation) is excluded.** Real RA 10754 rules are more nuanced per item; this is a deliberate, documented simplification so "not every line item qualifies" is genuinely true in the data.
+
+## Table: Feedback
+
+**Description:** One post-discharge experience survey response. 634 rows = 35.2% of encounters. Only generated for discharged encounters.
+
+| Attribute | Data Type | Key | Description |
+|---|---|---|---|
+| id | string | PK | `"FB-00001"` … |
+| encounterId | string | FK -> Encounter.id | |
+| patientId | string | FK -> Patient.id | Denormalized from the encounter. |
+| departmentId | string | FK -> Department.id | Denormalized from the encounter. |
+| npsScore | number | — | Integer 0–10. |
+| csatScore | number | — | Integer 1–5, correlated with `npsScore`. |
+| category | `"Wait Time" \| "Staff Attitude" \| "Cleanliness" \| "Billing Clarity" \| "Communication" \| "Facilities" \| "Other"` | — | Theme of the response. |
+| comment | string \| null | — | `null` for ~57% of rows (score-only submissions). |
+| submittedDate | string (`"YYYY-MM-DD"`) | — | Discharge + 0–14 days, clamped to the anchor date. |
+
+### Relationships
+- Reads `Encounter.disposition`, `Encounter.losDays`, `Encounter.readmitted30d`, `Billing.paymentStatus` and `PhilHealthClaim.status` to adjust the score. This is the "related variables move together" requirement: satisfaction is a function of operational reality already encoded elsewhere, not an independent roll.
+
+### Source
+`src/lib/data/hospital/generate.ts`, `buildFeedback()`.
+
+### Notes
+- Departmental NPS is genuinely differentiated, not uniform. Observed: Pediatrics +38, Oncology +26, Cardiology +17, Obstetrics +12, Surgery 0, Internal Medicine −14, Orthopedics −19, Emergency Medicine −69.
+- Category weighting is sentiment-dependent (detractors skew "Wait Time" / "Billing Clarity"; promoters skew "Staff Attitude" / "Communication"), and Emergency Medicine gets a 2.2x boost on "Wait Time".
+
+## Table: MonthMeta
+
+**Description:** One bucket in the 12-month reporting window. Not a fact table — a calendar helper carried on the dataset so charts do not each re-derive the month axis.
+
+| Attribute | Data Type | Key | Description |
+|---|---|---|---|
+| key | string | PK | `"YYYY-MM"`, sort-safe. |
+| label | string | — | Chart label, e.g. `"Mar 26"`. |
+| startDate | string (`"YYYY-MM-DD"`) | — | First day of the month. |
+| endDate | string (`"YYYY-MM-DD"`) | — | Last **observed** day (the anchor date for the final month). |
+| daysInMonth | number | — | Calendar length. |
+| daysObserved | number | — | Days actually inside the window. |
+| isPartial | boolean | — | `true` only for the final, month-to-date bucket. |
+
+### Source
+`src/lib/data/hospital/generate.ts`, `buildMonths()`.
+
+### Notes
+- Window is 2025-09 through 2026-08, with 2026-08 partial (11 of 31 days). Monthly volume charts should surface `isPartial` rather than reading the final bucket's dip as a trend. `MonthlyDepartmentVolumeRow` and `MonthlyRevenueRow` both carry the flag through.
+
+## Type: HospitalDatasetIndex
+
+**Description:** Not a table — a bundle of `ReadonlyMap` lookups built once alongside the dataset so the derivation layer never does linear scans for joins.
+
+| Attribute | Data Type |
+|---|---|
+| departmentById | `ReadonlyMap<string, Department>` |
+| doctorById | `ReadonlyMap<string, Doctor>` |
+| serviceById | `ReadonlyMap<string, ServiceCatalogItem>` |
+| patientById | `ReadonlyMap<string, Patient>` |
+| encounterById | `ReadonlyMap<string, Encounter>` |
+| billingByEncounterId | `ReadonlyMap<string, Billing>` |
+| servicesByEncounterId | `ReadonlyMap<string, EncounterService[]>` |
+| claimByEncounterId | `ReadonlyMap<string, PhilHealthClaim>` |
+| pwdDiscountByEncounterId | `ReadonlyMap<string, PWDDiscount>` |
+| feedbackByEncounterId | `ReadonlyMap<string, Feedback>` |
+| encountersByPatientId | `ReadonlyMap<string, Encounter[]>` |
+
+### Source
+`src/lib/data/hospital/generate.ts`, `buildIndex()`. Exposed as `HospitalDataset.index`.
+
+## Type: HospitalDataset
+
+**Description:** The container returned by `getHospitalDataset()`.
+
+| Attribute | Data Type | Description |
+|---|---|---|
+| anchorDate | string | `"2026-08-11"`. |
+| months | `MonthMeta[]` | 12 rows, oldest first. |
+| departments | `Department[]` | |
+| doctors | `Doctor[]` | |
+| services | `ServiceCatalogItem[]` | |
+| patients | `Patient[]` | |
+| encounters | `Encounter[]` | Sorted by `admitDateTime`. |
+| encounterServices | `EncounterService[]` | |
+| billings | `Billing[]` | |
+| claims | `PhilHealthClaim[]` | |
+| pwdDiscounts | `PWDDiscount[]` | |
+| feedback | `Feedback[]` | |
+| index | `HospitalDatasetIndex` | |
+
+### Source
+`src/lib/data/hospital/entities.ts` (type), `src/lib/data/hospital/generate.ts` (construction), `src/lib/data/hospital/index.ts` (memoized accessor).
 
 ---
 
-# Part 3 — Hospital ("Type A") Dashboard Mock Data
+## Derivation layer — `derive.ts`
 
-## File: `src/lib/analytics.mock.ts` (LEGACY — ORPHANED)
+Every helper is a pure `(dataset, filter?) => Row[]` function. `EncounterFilter`
+is `{ from?, to?, departmentIds?, encounterTypes?, payerTypes?, doctorIds? }`,
+all optional; `from`/`to` are inclusive `"YYYY-MM-DD"` bounds compared against
+`Encounter.admitDateTime`.
 
-**This file is only reachable via `src/components/analytics/dashboard.tsx`, which is itself not imported or routed anywhere in the app** (confirmed by searching the whole `src/` tree for imports of `components/analytics/dashboard` — zero results). All of the newer, actively-routed hospital dashboards use `executive.mock.ts`, `clinical.mock.ts`, etc. instead. This file/component pair appears to be a first-draft predecessor kept in the repo but not wired into any route. Documented in full per the task brief, but treat everything below as dead code, not as the live schema.
+| Helper | Returns | Purpose |
+|---|---|---|
+| `filterEncounters` | `Encounter[]` | The shared filter primitive every other helper calls. |
+| `volumeByDepartment` | `DepartmentVolumeRow[]` | Encounter counts split by type, plus `bedDaysUsed` / `avgDailyCensus`. |
+| `volumeByDepartmentAndMonth` | `MonthlyDepartmentVolumeRow[]` | Monthly volume trend by department, with `isPartial`. |
+| `volumeByEncounterType` | `EncounterTypeRow[]` | Inpatient / Outpatient / Emergency / Day Surgery mix and shares. |
+| `volumeByWeekdayHour` | `WeekdayHourCell[]` | 7x24 = 168 arrival-heatmap cells. |
+| `revenueByDepartment` | `DepartmentRevenueRow[]` | Gross -> deductions -> net -> collected -> balance, plus revenue per encounter. |
+| `revenueByMonth` | `MonthlyRevenueRow[]` | Same measures on the month axis (waterfall/trend input). |
+| `payerMix` | `PayerMixRow[]` | **The** payer-mix aggregation. Every payer chart must read this. |
+| `arAgingByPayer` | `ArAgingRow[]` | Outstanding balance in current / 31-60 / 61-90 / 90+ buckets, per payer. |
+| `paymentStatusBreakdown` | `PaymentStatusRow[]` | Bill counts and money by payment status. |
+| `claimsByStatus` | `ClaimStatusRow[]` | Claim pipeline funnel/donut input. |
+| `claimDenialReasons` | `DenialReasonRow[]` | Denials by code with value at risk, appeals filed and amount recovered. |
+| `claimTurnaroundByDepartment` | `ClaimTurnaroundRow[]` | Submission-to-remittance days and denial rate, per department. |
+| `pwdDiscountByDepartment` | `PwdDiscountRow[]` | PWD uptake, qualifying amount, discount and VAT-exempt value. |
+| `npsByDepartment` | `NpsRow[]` | Promoters/passives/detractors, NPS (−100..100), mean NPS score and CSAT. |
+| `feedbackByCategory` | `FeedbackCategoryRow[]` | Themes with mean scores and comment-completion rate. |
+| `readmissionRateByPayerAndDepartment` | `ReadmissionRow[]` | 30-day readmission rate crossed by payer x department. |
+| `topDiagnoses` | `DiagnosisRow[]` | Volume, inpatient mean LOS, canonical case rate, gross charges, readmission rate. |
+| `losStatsByDepartment` | `LosStatsRow[]` | Mean/median/p90/max LOS, outlier count, still-admitted count. |
+| `doctorProductivity` | `DoctorProductivityRow[]` | Per-physician volume, revenue, mean LOS, capacity utilization. |
+| `patientAgeMix` | `AgeMixRow[]` | Population pyramid by 7 age bands x gender. |
+| `datasetSummary` | `DatasetSummary` | Row counts for every table (smoke-test / docs helper). |
 
-## Table: KpiMetric (legacy)
-
-**Description:** One KPI tile on the legacy Medical Director dashboard (bed occupancy, ALOS, ER admissions, etc.).
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | PK | KPI slug, e.g. `"bed-occupancy"`. |
-| label | string | — | Display label. |
-| value | string | — | Pre-formatted current value, e.g. `"82.4%"`. |
-| delta | number | — | Percentage change vs. prior month. |
-| priorValue | string | — | Pre-formatted prior-period value. |
-| target | string (optional) | — | Pre-formatted target value, e.g. `"85%"`. |
-| status | KpiStatus (`"good" \| "warning" \| "danger" \| "neutral"`) | — | Status tone driving chip color. |
-| description | string | — | One-sentence explanation of the metric. |
-
-### Relationships
-- Instantiated by the `kpiMetrics: KpiMetric[]` const (10 rows), embedded into `DashboardData.kpis`.
-- Note: `KpiMetric` also exists, independently, in `executive.mock.ts`? **No** — `executive.mock.ts` has no `KpiMetric` interface; its KPI-like fields are inlined per-metric objects (`admissions`, `alos`, `bor`, etc.) directly on `ExecutiveData`. No name collision here, just noted for clarity.
-
-### Source
-`src/lib/analytics.mock.ts`, exported as `kpiMetrics: KpiMetric[]`, wrapped by `getDashboardData()` / `fetchDashboardData()`.
-
-### Notes
-`KpiStatus` is a trivial type alias (`"good" | "warning" | "danger" | "neutral"`), not tabled separately.
-
-## Table: OccupancyPoint (legacy)
-
-**Description:** One day of bed-occupancy trend data (current vs. prior vs. capacity).
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| date | string | — | Day label, e.g. `"Aug 1"`. |
-| occupancy | number | — | Current-period occupancy %. |
-| prior | number | — | Prior-period occupancy % for the same relative day. |
-| capacity | number | — | Total bed capacity (flat 320 across all rows in the mock). |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics.mock.ts`, exported as `occupancyData: OccupancyPoint[]`, embedded in `DashboardData.occupancy`.
-
-### Notes
-None.
-
-## Table: DepartmentAdmissions (legacy)
-
-**Description:** One department's admission count, current vs. prior period.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| department | string | — | Department name — **note:** uses a different department list than `PH_DEPARTMENTS` (includes `"ENT"`, `"Ophthalmology"`, `"Dermatology"`; omits `"Emergency Medicine"`, `"Cardiology"`, `"Oncology"`). This file predates `ph-constants.ts` and does not import it for departments. |
-| current | number | — | Current-period admission count. |
-| prior | number | — | Prior-period admission count. |
-
-### Relationships
-None identified (department names are free strings, not FK'd to `PH_DEPARTMENTS`).
-
-### Source
-`src/lib/analytics.mock.ts`, exported as `departmentAdmissions: DepartmentAdmissions[]`, embedded in `DashboardData.departmentAdmissions`.
-
-### Notes
-None.
-
-## Table: OrUtilizationPoint (legacy)
-
-**Description:** One day-of-week OR utilization summary.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| date | string | — | Weekday label, e.g. `"Mon"`. |
-| scheduled | number | — | Scheduled OR case count. |
-| completed | number | — | Completed OR case count. |
-| utilization | number | — | Utilization percentage (pre-computed, not derived at render time). |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics.mock.ts`, exported as `orUtilization: OrUtilizationPoint[]`, embedded in `DashboardData.orUtilization`.
-
-### Notes
-None.
-
-## Table: DiagnosisTop (legacy)
-
-**Description:** One top-diagnosis row for the legacy dashboard's diagnosis chart.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| code | string | — | ICD-10 code, sourced from `PH_TOP_DIAGNOSES`. |
-| description | string | — | Full clinical description. |
-| commonName | string | — | Short chart-axis label. |
-| count | number | — | Case count for the current period. |
-
-### Relationships
-- Built from `PH_TOP_DIAGNOSES.slice(0, 10)` — this is one of the few places this legacy file does reach into `ph-constants.ts` (it imports `PH_TOP_DIAGNOSES` only, nothing else).
-
-### Source
-`src/lib/analytics.mock.ts`, exported as `topDiagnoses: DiagnosisTop[]`, embedded in `DashboardData.topDiagnoses`.
-
-### Notes
-None.
-
-## Table: QualityEventPoint (legacy)
-
-**Description:** One week of patient-safety event counts.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| date | string | — | Week label, e.g. `"Week 1"`. |
-| falls | number | — | Fall incident count. |
-| infections | number | — | Infection event count. |
-| medicationErrors | number | — | Medication error count. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics.mock.ts`, exported as `qualityEvents: QualityEventPoint[]`, embedded in `DashboardData.qualityEvents`.
-
-### Notes
-None.
-
-## Table: VolumePoint (legacy)
-
-**Description:** One day of patient-volume trend data (admissions, discharges, ED visits). **Same name as, but a different shape from,** `VolumePoint` in `executive.mock.ts` — see Known Cross-File Inconsistencies #3.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| date | string | — | Day label, e.g. `"Aug 1"`. |
-| admissions | number | — | Admission count that day. |
-| discharges | number | — | Discharge count that day. |
-| edVisits | number | — | Emergency Department visit count that day. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics.mock.ts`, exported as `volumeData: VolumePoint[]`, embedded in `DashboardData.volume`.
-
-### Notes
-None.
-
-## Table: PatientAlert (legacy)
-
-**Description:** One clinical/operational alert row on the legacy dashboard. Predates, and is unrelated in shape to, the shared `AlertItem` type used by the (live) Alert & Notification Center tool.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | PK | Alert id, e.g. `"ALT-1024"`. |
-| date | string | — | ISO date the alert was raised. |
-| patientId | string | — | Patient identifier, e.g. `"PT-2026-00491"`. Free-text, not FK-enforced to any patient table. |
-| patientName | string | — | Patient display name (Last, First M. format). |
-| age | number | — | Patient age. |
-| gender | `"male" \| "female"` | — | Patient gender. |
-| category | `"Critical Result" \| "High Risk" \| "Safety Event" \| "Readmission" \| "Pending Claim"` | — | Alert category. |
-| source | string | — | Free-text FHIR-style resource reference, e.g. `"DiagnosticReport/LAB-8842"`. |
-| department | string | — | Department name (free string). |
-| summary | string | — | One-line clinical summary. |
-| status | `"Open" \| "Acknowledged" \| "Resolved"` | — | Alert workflow status. |
-| priority | `"High" \| "Medium" \| "Low"` | — | Alert priority. |
-
-### Relationships
-- `source` is a free-text FHIR-resource-style reference string (e.g. `Claim/PH-2026-1182`) — not a real FK, purely illustrative/display text.
-
-### Source
-`src/lib/analytics.mock.ts`, exported as `patientAlerts: PatientAlert[]`, embedded in `DashboardData.alerts`.
-
-### Notes
-None.
-
-## Table: DashboardData (legacy — top-level wrapper)
-
-**Description:** Top-level payload returned by `getDashboardData()`/`fetchDashboardData()` for the legacy, orphaned Medical Director dashboard.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| period | string | — | Current period label, e.g. `"August 2026"`. |
-| priorPeriod | string | — | Prior period label. |
-| generatedAt | string | — | ISO timestamp of generation (`new Date().toISOString()` — non-deterministic, the one place this file breaks from the "no `Math.random`, deterministic" convention used elsewhere). |
-| tenant | string | — | Facility name, `"Cebu City Medical Center"`. |
-| role | string | — | Viewer role label. |
-| kpis | KpiMetric[] | — | See **KpiMetric (legacy)**. |
-| occupancy | OccupancyPoint[] | — | See **OccupancyPoint (legacy)**. |
-| departmentAdmissions | DepartmentAdmissions[] | — | See **DepartmentAdmissions (legacy)**. |
-| orUtilization | OrUtilizationPoint[] | — | See **OrUtilizationPoint (legacy)**. |
-| topDiagnoses | DiagnosisTop[] | — | See **DiagnosisTop (legacy)**. |
-| qualityEvents | QualityEventPoint[] | — | See **QualityEventPoint (legacy)**. |
-| volume | VolumePoint[] | — | See **VolumePoint (legacy)**. |
-| alerts | PatientAlert[] | — | See **PatientAlert (legacy)**. |
-
-### Relationships
-- Aggregates all other tables in this file.
-
-### Source
-`src/lib/analytics.mock.ts`, produced by `getDashboardData()` / `fetchDashboardData()`.
-
-### Notes
-Reachable only via the orphaned `src/components/analytics/dashboard.tsx` (imports `DashboardData, fetchDashboardData, KpiMetric, PatientAlert` from this file). No route in the app renders that component.
+### Note on occupancy
+`volumeByDepartment` deliberately returns `bedDaysUsed` and `avgDailyCensus`
+rather than an occupancy percentage. The encounter table is a ~1,800-row
+synthetic extract, one to two orders of magnitude smaller than the annual
+throughput implied by a real Level 3 `bedCapacity`, so `bedDays / (beds x days)`
+would read as a nonsensical 1–3%. Charts needing an occupancy story should
+compare departments against each other on `avgDailyCensus`.
 
 ---
 
-## File: `src/lib/analytics/executive.mock.ts`
+# Data Generation Assumptions
 
-Mock data for the live Executive Analytics dashboard (Type A — Level 3 Hospital). Imports `KONSULTA_EKAS_RATE, PH_DEPARTMENTS, PH_DIAGNOSIS_CASE_RATES, PH_PAYER_MIX, PH_PHYSICIANS, PH_TOP_DIAGNOSES, TARGET_ADMISSIONS_PER_MONTH, phPatientName` from `ph-constants.ts` and calls `phPatientName` correctly (gender-aware).
+Everything in this section is a modelling choice, not observed data. All
+constants named here live in `src/lib/data/hospital/reference.ts`.
 
-## Table: AdmissionRow
+## Determinism and SSR safety
 
-**Description:** One inpatient admission encounter, used by the Executive dashboard's admissions table/drill-down.
+- **No `Math.random` anywhere.** All variation comes from `seeded(i, salt)` in `random.ts`, the same `sin`-based formula already used across `src/lib/analytics/**`, with one fix: the index is shifted by 1 and the salt added as an additive term, because the original formula collapses to the same value for `i === 0` regardless of salt. ~70 distinct prime salts give each decision an independent stream.
+- **All date arithmetic is UTC.** SSR and hydration can run in different timezones; local-time getters would shift admissions across day/month boundaries and break hydration.
+- **The anchor date is a constant (`2026-08-11`), not `new Date()`.** A wall-clock anchor could straddle midnight between server render and client hydration. Verified: two independent `generateHospitalDataset()` calls produce byte-identical rows.
+- The dataset is built once and memoized in a module-level singleton (`getHospitalDataset()`).
 
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| encounterId | string | PK | Encounter id, e.g. `"ENC-2026-4200"`. |
-| patient | string | — | Patient display name, from `phPatientName()`. |
-| patientId | string | — | Patient id, e.g. `"PT-2026-00300"`. |
-| age | number | — | Patient age. |
-| gender | `"male" \| "female"` | — | Patient gender. |
-| diagnosis | string | — | Diagnosis description, from `PH_TOP_DIAGNOSES`. |
-| icd10 | string | FK -> IcdEntry.code (informal) | ICD-10 code, from `PH_TOP_DIAGNOSES`. |
-| physician | string | FK -> PH_PHYSICIANS (informal) | Attending physician name. |
-| department | string | FK -> PH_DEPARTMENTS (informal) | Department name. |
-| los | number | — | Length of stay, in days. |
-| disposition | `"Recovered" \| "Improved" \| "Transferred" \| "HAMA" \| "Expired"` | — | Discharge disposition. |
-| admittedOn | string | — | ISO-ish date string (`"2026-08-DD"`). |
+## Reporting window
 
-### Relationships
-- `icd10`/`diagnosis` are sourced positionally from `PH_TOP_DIAGNOSES` (via a local `diagnoses: [string,string][]` derived array) — informal FK on `code`.
-- `physician` values come directly from `PH_PHYSICIANS`; `department` from `PH_DEPARTMENTS` — both informal FKs (string match only, no id column).
+- 12 monthly buckets, 2025-09 through 2026-08, ending at the anchor date.
+- The final bucket is **month-to-date** (11 of 31 days) and is flagged `isPartial`; monthly targets are scaled by `daysObserved / daysInMonth` so the partial month is not artificially inflated.
 
-### Source
-`src/lib/analytics/executive.mock.ts`, produced by `buildAdmissions(40)`, embedded in `ExecutiveData.admissions.rows`.
+## Patient population (800 rows)
 
-### Notes
-None.
+- **Gender:** 52% female target; 52.8% observed.
+- **Age distribution — deliberately non-uniform**, banded: 0–4 = 7%, 5–17 = 10%, 18–39 = 30%, 40–59 = 28%, 60–74 = 17%, 75–95 = 8%. Observed at the anchor date: 17.1% under 18, 21.6% aged 60+, the balance working-age. Age is drawn per band, converted to a `birthDate` with a 0–364 day jitter, and every downstream age check re-derives age from `birthDate` so the two can never disagree.
+- **PWD rate: 6%** (`PWD_PATIENT_RATE`), giving 46 PWD patients. `PH_SCPWD_PATIENT_RATE` in `ph-constants.ts` is 0.15, but that constant describes the combined **Senior Citizen + PWD payer share**, not PWD prevalence; senior citizens are modelled separately here (21.6% of patients are 60+), so applying 0.15 to the PWD flag alone would double-count. 6% is used per the brief.
+- **PhilHealth category:** 12% are `"Non-Member/Self-Pay"`. Of the remainder, patients aged 60+ become `"Senior Citizen"` with probability 0.55; everyone else draws from `PH_MEMBERSHIP_DISTRIBUTION`'s six categories at that file's own shares, with `"Lifetime"` suppressed to zero weight for under-60s (Lifetime membership legally requires 60+ plus 120 contributions). Observed: Employed 284, Indigent/4Ps 140, Self-Earning 103, Non-Member/Self-Pay 99, Senior Citizen 78, Sponsored 55, OFW/Other 40, Lifetime 1. `"Lifetime"` is rare by construction — it can only survive the 60+ gate after the Senior Citizen draw has already claimed most of that cohort.
+- **Registration date** starts as a draw across the preceding 6 years, then is pulled back to the patient's first encounter date wherever it would otherwise post-date it.
+- **Visit propensity:** each patient gets a long-tailed weight `0.4 + seeded^3 * 6`, so a minority of patients account for a disproportionate share of encounters. Without this, 1,800 encounters across 800 patients would produce an implausibly low readmission rate.
 
-## Table: VolumePoint (executive)
+## Department calibration
 
-**Description:** One month of hospital-wide volume by service line. **Same name as, but a different shape from,** the legacy `VolumePoint` in `analytics.mock.ts` — see Known Cross-File Inconsistencies #3. Also independently redeclared (identical shape) in `revenue.mock.ts`? **No** — `revenue.mock.ts` has no `VolumePoint`; only `executive.mock.ts` and the legacy file share the name.
+| Department | Category | Beds | Volume weight | Revenue index | Mean LOS | NPS baseline |
+|---|---|---|---|---|---|---|
+| Internal Medicine | Medical | 90 | 1.9 | 0.85 | 4.2 | 7.5 |
+| Emergency Medicine | Emergency | 25 | 1.8 | 0.60 | 2.5 | 6.4 |
+| Pediatrics | Medical | 50 | 1.2 | 0.75 | 3.4 | 8.4 |
+| Obstetrics | Surgical | 45 | 1.1 | 1.00 | 2.6 | 8.1 |
+| Surgery | Surgical | 60 | 1.0 | 1.75 | 5.0 | 7.7 |
+| Orthopedics | Surgical | 35 | 0.8 | 1.50 | 6.0 | 7.3 |
+| Cardiology | Medical | 30 | 0.7 | 1.90 | 5.2 | 8.0 |
+| Oncology | Medical | 25 | 0.5 | 2.20 | 6.5 | 8.6 |
 
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| month | string | — | Month label, e.g. `"Sep 25"`. |
-| inpatient | number | — | Inpatient admission volume. |
-| opd | number | — | Outpatient department visit volume. |
-| emergency | number | — | Emergency visit volume. |
-| daySurgery | number | — | Day-surgery case volume. |
-| priorInpatient | number | — | Prior-year inpatient volume for the same month, for YoY comparison. |
+Intent, as specified: Internal Medicine and Emergency Medicine are the highest-volume, lowest-revenue-per-case departments; Oncology and Cardiology are low-volume, high-revenue-per-case; Surgery is moderate volume with high revenue per case. Observed result: 380 encounters at PHP 16.3k/encounter for Internal Medicine and 359 at PHP 11.2k for Emergency Medicine, versus 99 encounters at PHP 47.1k for Oncology and 201 at PHP 96.9k for Surgery.
 
-### Relationships
-None identified.
+## Encounter volume shaping
 
-### Source
-`src/lib/analytics/executive.mock.ts`, computed inline as `volume: VolumePoint[]`, embedded in `ExecutiveData.volume`.
+- Monthly target = `TARGET_ENCOUNTER_COUNT` distributed across months by `growth x seasonality x noise x observedFraction`, then normalized so the total lands on target.
+- **Trend:** `ANNUAL_GROWTH = 0.14` applied linearly across the window (≈ ±7% end to end).
+- **Seasonality:** `MONTH_SEASONALITY` peaks Dec–Feb (respiratory/gastro) at 1.08–1.12 and troughs Apr–May at 0.88–0.90.
+- **Noise:** ±5% seeded per month.
+- **Department split:** proportional to `baseVolumeWeight`.
+- **Day of week:** per-encounter-type weights. Outpatient and Day Surgery are heavily weekday-skewed (Sunday 0.03–0.05 vs. weekday 1.1–1.3); Emergency is nearly flat with a slight weekend bump; Inpatient is moderately weekday-skewed.
+- **Hour of day:** per-encounter-type 24-slot weights. Outpatient peaks 09:00–11:00 and 13:00–15:00 with a lunch dip; Day Surgery peaks 07:00–09:00; Emergency runs 24h with an 17:00–21:00 evening peak and an early-morning trough; Inpatient admissions peak 09:00–15:00.
+- **Encounter-type mix** varies by department (`DEPARTMENT_ENCOUNTER_MIX`) — e.g. Emergency Medicine is 83% Emergency, Obstetrics is 55% Inpatient, Pediatrics is 60% Outpatient. Observed overall: Outpatient 37.8%, Inpatient 33.5%, Emergency 21.4%, Day Surgery 7.3%.
 
-### Notes
-None.
+## Clinical plausibility rules
 
-## Table: PayerSlice (executive)
+- **Patient/department eligibility** (`DEPARTMENT_PATIENT_RULES`): Pediatrics only accepts patients aged 0–17; Obstetrics only female patients aged 15–49; Cardiology 35+; Oncology 30+; Internal Medicine 13+; Surgery 12+; Orthopedics 10+; Emergency Medicine all ages.
+- **Doctor assignment:** the primary doctor is always drawn from the encounter's own department.
+- **Admission type:** populated only for Inpatient encounters, weighted Emergency 0.45 / Elective 0.40 / Transfer-in 0.08 / Newborn 0.07 — and `"Newborn"` is only possible in Obstetrics or Pediatrics. Verified: 0 non-Inpatient encounters carry an admission type, and 0 Inpatient encounters lack one.
+- **Diagnosis affinity** (`DEPARTMENT_DIAGNOSIS_WEIGHTS`): each department has explicit weights over the 12 `PH_TOP_DIAGNOSES` codes — `O80` at 12x in Obstetrics and 0.01x elsewhere, `C50.9` at 8x in Oncology, `I10` at 6x in Cardiology, `M54.5` at 6x in Orthopedics, and so on. Codes not listed for a department fall back to a residual weight of 0.15 (small but non-zero, because real coding is messy).
+- **Missing diagnosis:** 3% of encounters (`DIAGNOSIS_MISSING_RATE`) are left uncoded. Observed 3.1%. This is not cosmetic — it propagates to a zero PhilHealth deduction and a `Drafted` claim.
+- **Length of stay:** inpatient LOS is `round(baseLosDays x (0.45 + u x 1.4))`, minimum 1 day. Non-inpatient encounters are same-day (`losDays = 0`) with realistic hour-level durations (Outpatient 1–4h, Emergency 2–11h, Day Surgery 6h or overnight 20h).
+- **LOS outliers:** 2% of inpatient encounters (`LOS_OUTLIER_RATE`) have their LOS multiplied by 3–7x, producing a genuine long-stay tail rather than a clean distribution. Observed maxima: 45 days (Orthopedics), 35 (Internal Medicine), 23 (Oncology) against department medians of 5–7.
+- **Still admitted:** an encounter is left with `dischargeDateTime === null` when its computed discharge would fall past the anchor date — a natural consequence of admit date plus LOS, not a separate flag. 9 rows.
+- **Disposition** starts from Recovered 0.60 / Improved 0.28 / Transferred 0.05 / HAMA 0.04 / Expired 0.03 and is then adjusted: Expired x4 in Oncology, x2 in Emergency Medicine, x1.6 in Internal Medicine, x0.3 in Pediatrics/Obstetrics, x2.5 when LOS > 14 days; Transferred x3 and HAMA x2 in Emergency Medicine; HAMA x2.2 for private-pay/write-off payers and x1.8 for non-members; Outpatient encounters get Recovered x2 and Expired x0.02.
+- **Readmission** is computed, never rolled — see the `Encounter` table notes. Observed 10.8% of eligible encounters, and it varies by payer as an emergent property (private-pay Emergency Medicine 16.9% vs. HMO Emergency Medicine 5.9%).
 
-**Description:** One payer's share of gross revenue, for the payer-mix donut/bar chart. Same shape as, but independently declared from, `PayerSlice` in `revenue.mock.ts` — see Known Cross-File Inconsistencies #3.
+## Payer correlation
 
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| payer | string | — | Payer name, e.g. `"PhilHealth"`, `"HMO"`, `"SC/PWD Discount"`. |
-| amount | number | — | PHP amount attributed to this payer. |
-| color | string | — | Hex color for the chart slice. |
+- Base weights are `PH_PAYER_MIX` verbatim (philhealth 0.55, hmo 0.20, privatePay 0.17, scpwd 0.05, gsis 0.02, writeoff 0.01).
+- These are multiplied by `PAYER_CATEGORY_MULTIPLIER`, keyed on the patient's `philhealthCategory`. The important entries: `"Non-Member/Self-Pay"` gets **philhealth 0 and scpwd 0** (a self-pay patient can never land on a PhilHealth-funded bill) with privatePay 4.0x; `"Indigent/4Ps"` and `"Sponsored"` get philhealth 1.7–1.8x and hmo 0.05–0.1x; `"Employed"` gets hmo 1.6x; `"Senior Citizen"` gets scpwd 6.0x.
+- `isPWD === true` additionally multiplies the scpwd weight by 6 and adds a 0.08 floor, so a PWD patient reaches the SC/PWD ledger even if they are a non-member.
+- Result: 61.1% of encounters carry a PhilHealth benefit (`philhealth` or `scpwd`), inside the intended 55–65% band, and 56.8% of gross charges sit on `philhealth`.
 
-### Relationships
-- `amount` values are derived from `PH_PAYER_MIX` fractions applied to total gross revenue — informal, computed (not stored) relationship.
+## Pricing and billing
 
-### Source
-`src/lib/analytics/executive.mock.ts`, computed inline, embedded in `ExecutiveData.revenue.byPayer`.
+- **Unit price** = a seeded draw inside the service's catalogue band, shifted upward by `clamp((baseRevenueIndex - 0.6)/1.6, 0, 1) x 0.5` of the band width, multiplied by a department factor of `0.9 + 0.12 x baseRevenueIndex` and a per-case variance of 0.94–1.06. High-revenue-index departments therefore land systematically higher in the band *and* pay a modest multiplier, while no two identical services bill identically.
+- **Line item count:** 1–6 per encounter, mean 3.42. Composition is type-constrained (see the `EncounterService` notes).
+- **PhilHealth deduction:** see the `Billing` notes. Capped at 90% of gross so a bill is never fully extinguished by the case rate.
+- **PWD discount:** 20% of the qualifying amount, where qualifying excludes Room & Board. Strictly zero for non-PWD patients.
+- **Payment resolution:** a bill is fully settled with probability `payerPropensity x (0.35 + 0.65 x min(ageDays/120, 1))` — so recent bills are mostly Pending and old bills are mostly resolved. Payer propensities: philhealth 0.93, scpwd 0.90, hmo 0.88, gsis 0.85, privatePay 0.72, writeoff 0.05.
+- **Overdue / write-off correlation:** unsettled bills become `Write-off` if the payer is `writeoff`, or if the bill is over 240 days old on a privatePay/hmo payer with a 30% roll. Remaining unsettled bills are `Partial` (45%), else `Overdue` if over 60 days old, else `Pending`. Observed AR aging confirms the intent: privatePay carries PHP 2.34M in the 90+ bucket versus PHP 0.77M for philhealth.
+- **Missingness:** `paymentDate` is `null` whenever nothing was collected, plus a further 4% of Partial bills where the date was never captured.
 
-### Notes
-None.
+## Claims
 
-## Table: PayerTrendPoint (executive)
+- Generated only for `philhealth` / `scpwd` encounters — verified 0 exceptions.
+- `caseType` derivation order: Outpatient -> `Konsulta Package`; Obstetrics + `O80` -> `Maternity Package`; `C50.9` -> `Catastrophic (Z-Benefit)`; Day Surgery or an existing Surgery line -> `Surgical Case`; otherwise `Medical Case`.
+- **CR1/CR2 split:** 70/30 facility vs. professional fee (`CASE_RATE_CR1_SHARE`).
+- **Status** is age-driven: uncoded -> `Drafted`; under 7 days since submission -> `Submitted`; under 25 days -> `Under Review`; then an 8% backlog tail keeps some old claims in Submitted/Under Review (realistic queue behaviour); otherwise a 12% denial roll (`CLAIM_DENIAL_RATE`), and approved claims older than 45 days become `Remitted` with 75% probability.
+- **Denial codes** are weighted, not uniform: DN-01 (incomplete CSF) 26%, DN-03 (late filing) 18%, DN-06 (missing attachment) 15%, DN-02 14%, DN-04 12%, DN-05 8%, DN-07 7%.
+- **Appeals:** 55% of denials are appealed, with outcomes Filed 18% / Under Appeal 22% / Won 38% / Lost 22%. `amountRecovered` exists only for wins, at 60–100% of the case rate.
+- **Remittance** lands 30–95 days after submission at 85–100% of the case rate (partial payments and deductions).
 
-**Description:** One month of revenue broken out by payer, for the payer-mix trend chart. Same shape as, but independently declared from, `PayerTrendPoint` in `revenue.mock.ts` — see Known Cross-File Inconsistencies #3.
+## Feedback
 
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| month | string | — | Month label. |
-| philhealth | number | — | PHP revenue from PhilHealth. |
-| hmo | number | — | PHP revenue from HMO. |
-| privatePay | number | — | PHP revenue from private pay. |
-| scpwd | number | — | PHP revenue foregone/discounted for SC/PWD. |
-| gsis | number | — | PHP revenue from GSIS/other government. |
-| writeoff | number | — | PHP written off. |
+- **Response rate:** 35% baseline (`FEEDBACK_RESPONSE_RATE`), modulated by department satisfaction so happier departments respond slightly more often, clamped to 22–45%. Only discharged encounters are surveyed.
+- **Score construction:** department `npsBaseline` + an approximately-normal deviate (sd 1.5), then adjusted downward: Expired −2.5, HAMA −2.0, Transferred −0.8, LOS beyond 2x the department mean −1.5, 30-day readmission −0.7, Overdue/Write-off bill −0.6, denied claim −0.7. Clamped to 0–10.
+- **CSAT** is derived from NPS (`1 + nps x 0.4` plus noise, clamped 1–5), so the two questions never contradict each other.
+- **Comment missingness:** 55% target, 56.8% observed. Comment text is a fixed positive/negative phrase per category, chosen by sentiment.
 
-### Relationships
-None identified beyond the `PH_PAYER_MIX` fraction basis noted above.
+## Known simplifications (summary)
 
-### Source
-`src/lib/analytics/executive.mock.ts`, computed inline over `months.slice(6)`, embedded in `ExecutiveData.revenue.payerTrend`.
-
-### Notes
-None.
-
-## Table: DiagnosisRow
-
-**Description:** One top-diagnosis row with case-rate and trend data, for the Executive dashboard's diagnosis chart.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| code | string | FK -> IcdEntry.code (informal) | ICD-10 code. |
-| description | string | — | Full clinical description. |
-| commonName | string | — | Short chart-axis label. |
-| count | number | — | Case count for the current period. |
-| caseRate | number | — | PhilHealth case rate in PHP, from `PH_DIAGNOSIS_CASE_RATES`. |
-| avgLos | number | — | Average length of stay for this diagnosis. |
-| trend | number[] | — | 6-point trailing trend series (unlabeled index, not paired with month names). |
-
-### Relationships
-- `code` sourced from `PH_TOP_DIAGNOSES`; `caseRate` looked up from `PH_DIAGNOSIS_CASE_RATES[code]` with a `10_000` fallback if missing — informal FK.
-
-### Source
-`src/lib/analytics/executive.mock.ts`, computed inline, embedded in `ExecutiveData.topDiagnoses`.
-
-### Notes
-None.
-
-## Table: ClaimStatusSlice
-
-**Description:** One claims-pipeline status bucket with PHP value, for the Executive dashboard's claims-status chart.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| status | string | — | Status label, e.g. `"Submitted"`, `"RTN Pending"`, `"Approved"`, `"Denied"`, `"Returned-to-Hospital"`. |
-| count | number | — | Claim count in this status. |
-| value | number | — | PHP value of claims in this status. |
-| color | string | — | Hex color for the chart slice. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/executive.mock.ts`, hardcoded in `getExecutiveData()`, embedded in `ExecutiveData.claims.statuses`.
-
-### Notes
-None.
-
-## Table: DenialReason (executive)
-
-**Description:** One PhilHealth claim-denial reason with financial impact, for the Executive dashboard's denial summary. Same name as, but a different (superset) shape from, `DenialReason` in `lgu/konsulta.mock.ts` — see Known Cross-File Inconsistencies #3.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| code | string | — | Denial reason code, e.g. `"DR-101"`. |
-| reason | string | — | Short reason label. |
-| count | number | — | Number of claims denied for this reason. |
-| valueAtRisk | number | — | PHP value at risk from this denial reason. |
-| action | string | — | Recommended remediation action, free text. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/executive.mock.ts`, hardcoded in `getExecutiveData()`, embedded in `ExecutiveData.claims.denialReasons`.
-
-### Notes
-None.
-
-## Table: LabTatCategory
-
-**Description:** One laboratory test category's turn-around-time (TAT) compliance summary, for the Executive dashboard's lab compliance chart.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| category | string | — | Lab category name, e.g. `"Hematology"`, `"Microbiology"`. |
-| compliance | number | — | TAT compliance percentage. |
-| target | number | — | Target compliance percentage. |
-| median | number | — | Median TAT in hours (or minutes for fast categories — unit not distinguished in the type; **Needs verification** against consuming UI for exact unit). |
-
-### Relationships
-None identified. Category names here are free strings, not FK'd to `LabCategory` in `laboratory.mock.ts` even though the value sets overlap.
-
-### Source
-`src/lib/analytics/executive.mock.ts`, hardcoded in `getExecutiveData()`, embedded in `ExecutiveData.lab.byCategory`.
-
-### Notes
-None.
-
-## Table: ActionAlert
-
-**Description:** One actionable alert card on the Executive dashboard (distinct from the shared `AlertItem` type used by the Alert & Notification Center tool — this is an older, simpler, Executive-dashboard-only shape).
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | PK | Alert id, e.g. `"AL-1"`. |
-| title | string | — | Alert title. |
-| detail | string | — | Supporting detail text. |
-| count | number | — | Count associated with the alert (e.g. number of claims). |
-| severity | `"danger" \| "warning" \| "neutral"` | — | Severity tone (note: only 3 values, vs. `AlertSeverity`'s `critical/warning/info`). |
-| actionLabel | string | — | Label for the action button. |
-| module | string | — | Source module label, e.g. `"Claims"`, `"Laboratory"`. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/executive.mock.ts`, hardcoded in `getExecutiveData()`, embedded in `ExecutiveData.alerts`.
-
-### Notes
-None.
-
-## Table: ExecutiveData (top-level wrapper)
-
-**Description:** Top-level payload returned by `getExecutiveData()`/`fetchExecutiveData()` for the live hospital Executive dashboard. Most nested keys are anonymous inline object shapes (no separate named interface), noted as such below.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| tenant | string | — | `"Cebu City Medical Center"`. |
-| period | string | — | Current period label. |
-| priorPeriod | string | — | Prior period label. |
-| admissions | inline `{total, deltaMonth, deltaYear, rows: AdmissionRow[]}` | — | Admission KPI + row-level detail; `rows` -> **AdmissionRow[]**. |
-| alos | inline `{value, delta, byDepartment, byChapter, byAdmissionType}` (each breakdown an anonymous `{name, value}[]`) | — | Average length-of-stay KPI + breakdowns. |
-| bor | inline `{value, delta, byWard: {name,value}[], trend: {month,value}[]}` | — | Bed occupancy rate KPI + breakdowns. |
-| revenue | inline `{total, delta, byDepartment, byServiceType, byPayer: PayerSlice[], payerTrend: PayerTrendPoint[]}` | — | Revenue KPI; `byPayer` -> **PayerSlice (executive)[]**, `payerTrend` -> **PayerTrendPoint (executive)[]**. |
-| remittance | inline `{received, expected, delta, batches: {batch,caseType,claims,amount,status}[]}` | — | PhilHealth remittance KPI + batch detail (anonymous row shape). |
-| approvalRate | inline `{value, delta, byDepartment: {name,value}[]}` | — | Claims approval-rate KPI. |
-| mortality | inline `{value, delta, byDepartment, byDiagnosis}` (anonymous `{name,value}[]`) | — | Mortality KPI + breakdowns. |
-| satisfaction | inline `{value, delta, byDepartment: {name,value}[]}` | — | Patient satisfaction KPI. |
-| volume | VolumePoint (executive)[] | — | See **VolumePoint (executive)**. |
-| topDiagnoses | DiagnosisRow[] | — | See **DiagnosisRow**. |
-| claims | inline `{statuses: ClaimStatusSlice[], denialReasons: DenialReason (executive)[]}` | — | Claims summary sub-object. |
-| lab | inline `{compliance, target, byCategory: LabTatCategory[], trend: {day,value}[]}` | — | Lab compliance summary sub-object. |
-| alerts | ActionAlert[] | — | See **ActionAlert**. |
-
-### Relationships
-- Aggregates `AdmissionRow`, `VolumePoint (executive)`, `PayerSlice (executive)`, `PayerTrendPoint (executive)`, `DiagnosisRow`, `ClaimStatusSlice`, `DenialReason (executive)`, `LabTatCategory`, `ActionAlert`.
-
-### Source
-`src/lib/analytics/executive.mock.ts`, produced by `getExecutiveData()` / `fetchExecutiveData()`.
-
-### Notes
-Many nested breakdown arrays (`byDepartment`, `byChapter`, `byWard`, etc.) share the same anonymous `{name: string; value: number}` shape but are not backed by a single named type — each is inlined separately on the `ExecutiveData` interface.
+1. Ancillary services (Laboratory, Imaging, Pharmacy, Room & Board) all carry the Internal Medicine department id as a shared cost centre. Revenue attribution never uses this field.
+2. PWD discount qualification is category-level, not item-level, and excludes Room & Board.
+3. `Department.category` includes `"Diagnostic"`, which no current row uses.
+4. Doctors never work outside their primary department.
+5. Bed occupancy percentage is not derivable — the encounter volume is a scaled-down extract relative to real Level 3 bed capacity.
+6. Claim `submissionDate` is populated even for `Drafted` claims, where it represents the preparation date.
+7. Still-admitted encounters carry a `disposition` reflecting current status rather than a final discharge outcome.
 
 ---
 
-## File: `src/lib/analytics/clinical.mock.ts`
-
-Mock data for the Clinical Analytics dashboard. Imports `PH_DEPARTMENTS, PH_DEPARTMENT_COLORS, PH_PHYSICIANS, PH_TOP_DIAGNOSES, phPatientName` from `ph-constants.ts` (and calls `phPatientName` correctly).
-
-## Table: IcdCode
-
-**Description:** A minimal ICD-10 code/description pair, re-declared here as its own interface even though `ICD_CODES` is assigned directly from `PH_TOP_DIAGNOSES` (which is typed as `IcdEntry[]`, a structural superset of `IcdCode`).
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| code | string | — | ICD-10 code. |
-| description | string | — | Full clinical description. |
-
-### Relationships
-- `ICD_CODES: IcdCode[] = PH_TOP_DIAGNOSES` — direct re-export/assignment of the `ph-constants.ts` diagnosis list under a locally-typed name; structurally compatible with `IcdEntry` (TypeScript structural typing allows the extra `commonName` field to be ignored) but declared as its own, narrower interface rather than importing `IcdEntry`.
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, exported as `ICD_CODES: IcdCode[]`.
-
-### Notes
-None.
-
-## Table: HeatmapCell
-
-**Description:** One department × month cell in the Clinical dashboard's admission-volume heatmap.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| department | Department (`= (typeof PALETTE_DEPTS)[number]`, i.e. one of the 8 `PH_DEPARTMENTS` values) | FK -> PH_DEPARTMENTS (informal) | Department name. |
-| month | string | — | Month label, e.g. `"Sep 25"`. |
-| count | number | — | Admission count for that department/month. |
-
-### Relationships
-- Keyed (informally, by string concatenation `` `${department}__${month}` ``) into `heatmapDrill: Record<string, HeatmapDrillCase[]>` on `ClinicalData` for drill-down.
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `buildHeatmap()`, embedded in `ClinicalData.heatmap`.
-
-### Notes
-`Department` is a trivial type alias, not tabled separately.
-
-## Table: HeatmapDrillCase
-
-**Description:** One case-level row shown when a user drills into a `HeatmapCell`.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| encounterId | string | PK | Encounter id. |
-| patient | string | — | Patient display name, from `phPatientName()`. |
-| physician | string | FK -> PH_PHYSICIANS (informal) | Attending physician name. |
-| icd10 | string | FK -> IcdCode.code (informal) | ICD-10 code. |
-| outcome | string | — | Discharge outcome label (free string; overlaps but is not typed against `AdmissionRow.disposition`'s literal union). |
-
-### Relationships
-- Value of the `Record<string, HeatmapDrillCase[]>` keyed by `` `${department}__${month}` `` — see **HeatmapCell**.
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `buildHeatmapDrill()`, embedded in `ClinicalData.heatmapDrill`.
-
-### Notes
-None.
-
-## Table: DiseaseTrendSeries
-
-**Description:** One diagnosis's monthly case-count and rate-per-1000 trend series, for the Clinical dashboard's disease-trend line chart.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| code | string | FK -> IcdCode.code (informal) | ICD-10 code. |
-| description | string | — | Full clinical description. |
-| color | string | — | Hex color for the trend line. |
-| points | inline `{month: string; count: number; ratePer1000: number}[]` | — | 12-month trend series (anonymous shape, not a named type). |
-
-### Relationships
-- Built from `ICD_CODES.slice(0, 6)` — top 6 of the 12 canonical diagnoses.
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `buildDiseaseTrends()`, embedded in `ClinicalData.diseaseTrends`.
-
-### Notes
-None.
-
-## Table: ComorbidityBubble
-
-**Description:** One primary/comorbid diagnosis pair, for the Clinical dashboard's comorbidity bubble chart.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | PK | Bubble id, e.g. `"COM-0"`. |
-| primaryDx | string | FK -> IcdCode.code (informal) | Primary diagnosis ICD-10 code. |
-| comorbidDx | string | FK -> IcdCode.code (informal) | Comorbid diagnosis ICD-10 code. |
-| department | Department | FK -> PH_DEPARTMENTS (informal) | Department associated with this pairing. |
-| frequency | number | — | Co-occurrence frequency count. |
-| avgLos | number | — | Average length of stay for this pairing. |
-| mortalityRate | number | — | Mortality rate percentage for this pairing. |
-| color | string | — | Hex color, looked up from `DEPT_COLORS[department]` (i.e. `PH_DEPARTMENT_COLORS`). |
-
-### Relationships
-- `color` is an informal FK lookup into `PH_DEPARTMENT_COLORS` via `department`.
-- `primaryDx`/`comorbidDx` are hardcoded pairs from a fixed 8-pair list of ICD-10 codes (some from `PH_TOP_DIAGNOSES`, others like none outside it — all 8 pairs use codes present in `PH_TOP_DIAGNOSES`).
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `buildComorbidity()`, embedded in `ClinicalData.comorbidity`.
-
-### Notes
-None.
-
-## Table: ProcedureNode
-
-**Description:** One surgical/procedure line item, for the Clinical dashboard's procedure-revenue treemap.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| name | string | — | Procedure name, e.g. `"Appendectomy"`. |
-| category | string | — | Procedure category, e.g. `"General Surgery"`. |
-| volume | number | — | Case volume. |
-| revenue | number | — | Total PHP revenue (`volume * avgRevenuePerCase`). |
-| avgRevenuePerCase | number | — | Average PHP revenue per case. |
-
-### Relationships
-- Nested under `{category, children: ProcedureNode[]}[]` on `ClinicalData.procedures` — the outer `category` wrapper is an anonymous shape, not a named type.
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `buildProcedures()`, embedded in `ClinicalData.procedures[].children`.
-
-### Notes
-None.
-
-## Table: SurgeonRow
-
-**Description:** One surgeon's case volume, outcomes, and revenue summary, for the Clinical dashboard's surgeon-performance table.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| name | string | — | Surgeon name (from a local 6-name subset of `PH_PHYSICIANS`-style names, hardcoded locally as `surgeonNames`, not imported from `PH_PHYSICIANS`). |
-| department | Department | FK -> PH_DEPARTMENTS (informal) | Department. |
-| cases | number | — | Case volume. |
-| avgLos | number | — | Average length of stay. |
-| complicationRate | number | — | Complication rate percentage. |
-| mortalityRate | number | — | Mortality rate percentage. |
-| avgOrTimeMin | number | — | Average OR time in minutes. |
-| revenue | number | — | Total PHP revenue attributed to this surgeon. |
-| trend | number[] | — | 8-point trailing trend series (unlabeled index). |
-
-### Relationships
-- `name` values (`"Dr. E. Villaraza"`, `"Dr. F. Nazareno"`, `"Dr. G. Suarez"`, `"Dr. H. Tolentino"`, `"Dr. I. Aquino"`, `"Dr. J. Villamor"`) happen to be an exact subset of `PH_PHYSICIANS`, but are hardcoded locally rather than filtered/imported from it — informal, coincidental overlap, not an enforced relationship.
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `buildSurgeons()`, embedded in `ClinicalData.surgeons`.
-
-### Notes
-None.
-
-## Table: OrBlock
-
-**Description:** One scheduled OR block (a surgeon/procedure occupying an operating room for part of a day).
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| room | string | — | OR room label, e.g. `"OR-1"`. |
-| procedure | string | — | Procedure name. |
-| surgeon | string | FK -> SurgeonRow.name (informal) | Surgeon name. |
-| startHour | number | — | Block start hour (24h clock, fractional not used). |
-| durationHours | number | — | Block duration in hours (can be fractional, e.g. `1.75`). |
-
-### Relationships
-- Nested under `{room, blocks: OrBlock[], utilizationPct: number}[]` on `ClinicalData.orRooms` — outer wrapper is an anonymous shape.
-- `surgeon` values are drawn from the same local `surgeonNames` pool as `SurgeonRow.name` — informal FK.
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `buildOrRooms()`, embedded in `ClinicalData.orRooms[].blocks`.
-
-### Notes
-None.
-
-## Table: DischargeMonth
-
-**Description:** One month of discharge-disposition counts, for the Clinical dashboard's discharge-outcomes stacked bar chart.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| month | string | — | Month label. |
-| Recovered | number | — | Count of "Recovered" dispositions (note: PascalCase field name, matching the `AdmissionRow.disposition` literal values used as keys). |
-| Improved | number | — | Count of "Improved" dispositions. |
-| Transferred | number | — | Count of "Transferred" dispositions. |
-| HAMA | number | — | Count of "HAMA" (Home Against Medical Advice) dispositions. |
-| Expired | number | — | Count of "Expired" dispositions. |
-
-### Relationships
-- Field names mirror `AdmissionRow.disposition`'s literal union values exactly, but this is not type-enforced (they are independently spelled out as object keys here).
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `buildDischarge()`, embedded in `ClinicalData.discharge`.
-
-### Notes
-None.
-
-## Table: ReadmissionPoint
-
-**Description:** One month of 30-day readmission rate, for the Clinical dashboard's readmission trend chart.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| month | string | — | Month label. |
-| rate | number | — | Readmission rate percentage. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `buildReadmission()`, embedded in `ClinicalData.readmission`.
-
-### Notes
-None.
-
-## Table: ReadmissionCase
-
-**Description:** One case-level readmission row, for the Clinical dashboard's readmission drill-down table.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| patient | string | — | Patient display name, from `phPatientName()`. |
-| originalDx | string | FK -> IcdCode.description (informal) | Original diagnosis description. |
-| department | Department | FK -> PH_DEPARTMENTS (informal) | Department. |
-| physician | string | FK -> PH_PHYSICIANS (informal) | Attending physician name. |
-| daysToReadmit | number | — | Days between discharge and readmission. |
-
-### Relationships
-None beyond the informal FKs noted.
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `buildReadmissionCases()`, embedded in `ClinicalData.readmissionCases`.
-
-### Notes
-None.
-
-## Table: HamaDept
-
-**Description:** One department's HAMA (discharge Against Medical Advice) rate, for the Clinical dashboard's HAMA-by-department chart.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| department | Department | FK -> PH_DEPARTMENTS (informal) | Department. |
-| rate | number | — | HAMA rate percentage. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `buildHamaByDept()`, embedded in `ClinicalData.hamaByDept`.
-
-### Notes
-None.
-
-## Table: SankeyLink
-
-**Description:** One source→target patient-flow link, for the Clinical dashboard's referral-flow Sankey diagram.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| source | string | — | Source node label, e.g. `"OPD / ER Intake"`, `"Barangay Health Center"`. |
-| target | string | — | Target node label, e.g. `"Internal Medicine"`, `"ICU"`. |
-| volume | number | — | Flow volume (case count). |
-| kind | `"internal" \| "external" \| "emergency"` | — | Flow classification, drives link styling. |
-
-### Relationships
-- `` `${source}__${target}` `` string key informally links each `SankeyLink` to its `ReferralCase[]` bucket in `ClinicalData.referralCases`.
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `buildReferralFlow()`, embedded in `ClinicalData.referralFlow`.
-
-### Notes
-None.
-
-## Table: ReferralCase
-
-**Description:** One case-level row for a given source→target referral link, for drill-down.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| patient | string | — | Patient label — **note:** hardcoded as literal `` `Patient ${i + 1}` `` placeholder text, not `phPatientName()`. |
-| status | `"Accepted" \| "Pending" \| "Declined" \| "Completed"` | — | Referral status. |
-| date | string | — | ISO-ish date string. |
-
-### Relationships
-- Value of `Record<string, ReferralCase[]>` keyed by `` `${source}__${target}` `` — see **SankeyLink**.
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `buildReferralCases()`, embedded in `ClinicalData.referralCases`.
-
-### Notes
-`patient` values are generic placeholders (`"Patient 1"`, `"Patient 2"`, ...), not run through `phPatientName()` — inconsistent with the rest of the file's patient-naming convention.
-
-## Table: SpecialtyAcceptance
-
-**Description:** One outside specialty's referral acceptance-rate and response-time summary.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| specialty | string | — | Specialty name, e.g. `"Cardiology"`, `"Nephrology"` (a separate, hardcoded 6-item list, distinct from `PH_DEPARTMENTS`). |
-| acceptanceRate | number | — | Acceptance rate percentage. |
-| avgResponseHours | number | — | Average response time in hours. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `buildSpecialtyAcceptance()`, embedded in `ClinicalData.specialtyAcceptance`.
-
-### Notes
-None.
-
-## Table: ClinicalData (top-level wrapper)
-
-**Description:** Top-level payload returned by `getClinicalData()`/`fetchClinicalData()` for the Clinical Analytics dashboard.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| tenant | string | — | Facility name. |
-| period | string | — | Current period label. |
-| heatmap | HeatmapCell[] | — | See **HeatmapCell**. |
-| heatmapMonths | string[] | — | 12-month axis labels for the heatmap. |
-| heatmapDrill | Record<string, HeatmapDrillCase[]> | — | See **HeatmapDrillCase**. |
-| diseaseTrends | DiseaseTrendSeries[] | — | See **DiseaseTrendSeries**. |
-| comorbidity | ComorbidityBubble[] | — | See **ComorbidityBubble**. |
-| procedures | inline `{category: string; children: ProcedureNode[]}[]` | — | See **ProcedureNode**. |
-| surgeons | SurgeonRow[] | — | See **SurgeonRow**. |
-| orRooms | inline `{room: string; blocks: OrBlock[]; utilizationPct: number}[]` | — | See **OrBlock**. |
-| discharge | DischargeMonth[] | — | See **DischargeMonth**. |
-| readmission | ReadmissionPoint[] | — | See **ReadmissionPoint**. |
-| readmissionCases | ReadmissionCase[] | — | See **ReadmissionCase**. |
-| hamaByDept | HamaDept[] | — | See **HamaDept**. |
-| referralFlow | SankeyLink[] | — | See **SankeyLink**. |
-| referralCases | Record<string, ReferralCase[]> | — | See **ReferralCase**. |
-| specialtyAcceptance | SpecialtyAcceptance[] | — | See **SpecialtyAcceptance**. |
-
-### Relationships
-- Aggregates all tables in this file.
-
-### Source
-`src/lib/analytics/clinical.mock.ts`, produced by `getClinicalData()` / `fetchClinicalData()`.
-
-### Notes
-Also exports `DEPT_COLOR_MAP = DEPT_COLORS` (i.e. `PH_DEPARTMENT_COLORS`) as a convenience re-export; not a type.
-
----
-
-## File: `src/lib/analytics/revenue.mock.ts`
-
-Mock data for the Revenue Cycle & Billing Analytics dashboard. Imports `PH_DEPARTMENTS, PH_MEMBERSHIP_DISTRIBUTION, PH_PAYER_MIX, phPatientName` from `ph-constants.ts` (calls `phPatientName` correctly).
-
-## Table: WaterfallStep
-
-**Description:** One step of the gross-charges-to-net-collections waterfall chart.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| key | string | PK | Step slug, e.g. `"gross"`, `"scpwd"`, `"net"`. |
-| label | string | — | Display label. |
-| base | number | — | Base (floor) value for rendering the waterfall bar. |
-| value | number | — | Step value (positive for start/end, magnitude of deduction for deduction steps). |
-| kind | `"start" \| "deduction" \| "end"` | — | Step classification. |
-| detail | inline `{item: string; amount: number}[]` | — | Line-item breakdown shown on drill-down. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/revenue.mock.ts`, computed inline inside `getRevenueData()`, embedded in `RevenueData.waterfall`.
-
-### Notes
-None.
-
-## Table: PayerSlice (revenue)
-
-**Description:** One payer's share of gross charges. Same shape as, but independently declared from, `PayerSlice` in `executive.mock.ts` — see Known Cross-File Inconsistencies #3.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| payer | string | — | Payer name. |
-| amount | number | — | PHP amount. |
-| color | string | — | Hex color. |
-
-### Relationships
-- `amount` derived from `PH_PAYER_MIX` fractions.
-
-### Source
-`src/lib/analytics/revenue.mock.ts`, computed inline, embedded in `RevenueData.payerMix`.
-
-### Notes
-None.
-
-## Table: PayerTrendPoint (revenue)
-
-**Description:** One month of gross charges broken out by payer. Same shape as, but independently declared from, `PayerTrendPoint` in `executive.mock.ts` — see Known Cross-File Inconsistencies #3.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| month | string | — | Month label. |
-| philhealth | number | — | PHP amount. |
-| hmo | number | — | PHP amount. |
-| privatePay | number | — | PHP amount. |
-| scpwd | number | — | PHP amount. |
-| gsis | number | — | PHP amount. |
-| writeoff | number | — | PHP amount. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/revenue.mock.ts`, computed inline over a 6-month window, embedded in `RevenueData.payerTrend`.
-
-### Notes
-None.
-
-## Table: DeptRevenueRow
-
-**Description:** One department's revenue breakdown by payer, with top procedures/diagnoses.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| department | string | FK -> PH_DEPARTMENTS (informal) | Department name. |
-| philhealth | number | — | PHP revenue from PhilHealth. |
-| hmo | number | — | PHP revenue from HMO. |
-| privatePay | number | — | PHP revenue from private pay. |
-| scpwd | number | — | PHP revenue from SC/PWD. |
-| gsis | number | — | PHP revenue from GSIS. |
-| total | number | — | Sum of the 5 payer columns. |
-| topProcedures | inline `{name: string; amount: number}[]` | — | Top 3 procedures by revenue, from a hardcoded 8-item procedure pool. |
-| topDiagnoses | inline `{name: string; amount: number}[]` | — | Top 3 diagnoses by revenue, from a hardcoded 6-item diagnosis-label pool (free-text labels like `"Type 2 diabetes (E11.9)"`, not structured `{code, description}`). |
-
-### Relationships
-None identified beyond the informal department FK.
-
-### Source
-`src/lib/analytics/revenue.mock.ts`, computed inline (sorted by `total` desc), embedded in `RevenueData.departmentRevenue`.
-
-### Notes
-None.
-
-## Table: ARAgingRow
-
-**Description:** One payer's accounts-receivable aging bucket summary.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| payer | string | — | Payer name. |
-| current | number | — | PHP AR current (not yet aged). |
-| d31 | number | — | PHP AR aged 31–60 days (field name suggests "31+"; bucket boundaries not explicit in code — **Needs verification** against the exact bucket definitions used in the UI). |
-| d61 | number | — | PHP AR aged 61–90 days (approx; see caveat above). |
-| d90 | number | — | PHP AR aged 90+ days. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/revenue.mock.ts`, hardcoded 5-row array, embedded in `RevenueData.arAging`.
-
-### Notes
-Exact day-range boundaries for `d31`/`d61` are inferred from field naming and the `REV.b31`/`REV.b61`/`REV.b90` color constants, not from an explicit bucket-boundary constant in the code — flagged as `Needs verification`.
-
-## Table: ARPatientRow
-
-**Description:** One patient-level AR-over-90-days row, for the collections worklist.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| patient | string | — | Patient display name, from `phPatientName()`. |
-| patientId | string | — | Patient id, e.g. `"PT-2026-01200"`. |
-| payer | string | FK -> payers list (informal) | Payer name. |
-| daysOutstanding | number | — | Days the balance has been outstanding (91+ in this mock). |
-| amount | number | — | PHP outstanding amount. |
-| lastBillingAction | string | — | Free-text description of the most recent billing action taken. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/revenue.mock.ts`, produced by `buildPatientRows(18, payers)`, embedded in `RevenueData.arOver90`.
-
-### Notes
-None.
-
-## Table: CollectionPoint
-
-**Description:** One period's collection performance, broken out by payer, department, and collection agent.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| period | string | — | Month label. |
-| target | number | — | PHP collection target (flat `6,200,000` every period in this mock). |
-| philhealth | number | — | PHP collected from PhilHealth. |
-| hmo | number | — | PHP collected from HMO. |
-| privatePay | number | — | PHP collected from private pay. |
-| scpwd | number | — | PHP collected from SC/PWD. |
-| emergency | number | — | PHP collected attributed to Emergency department. |
-| surgery | number | — | PHP collected attributed to Surgery department. |
-| internalMed | number | — | PHP collected attributed to Internal Medicine department. |
-| agentA | number | — | PHP collected by Agent A. |
-| agentB | number | — | PHP collected by Agent B. |
-| agentC | number | — | PHP collected by Agent C. |
-
-### Relationships
-None identified. Department/agent breakdowns are flat named fields, not FK'd to `PH_DEPARTMENTS` or any agent roster.
-
-### Source
-`src/lib/analytics/revenue.mock.ts`, computed inline over a 6-month window, embedded in `RevenueData.collectionTrend`.
-
-### Notes
-None.
-
-## Table: FunnelStage (revenue)
-
-**Description:** One stage of the discharge-to-payment revenue-cycle funnel. Different shape from `PipelineStage` (`claims.mock.ts`) even though both model a claims-like pipeline — see Notes.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| stage | string | — | Stage label, e.g. `"Discharged"`, `"Bill Generated"`, `"Claim Submitted"`, `"Paid"`. |
-| count | number | — | Count of encounters at this stage. |
-| encounters | inline `{encounterId: string; patient: string; amount: number; daysStuck: number}[]` | — | Encounter-level drill-down rows for this stage. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/revenue.mock.ts`, computed inline, embedded in `RevenueData.funnel`.
-
-### Notes
-`FunnelStage` here is a 4-stage, encounter-drill-down-bearing shape, distinct from `claims.mock.ts`'s simpler `PipelineStage {stage, count, value}` (6 stages, no per-row drill-down array, has a `value` field instead) — both model a "claims funnel" concept but are independently declared with different shapes and different names, so not counted under the strict "identically-named type" inconsistency list, but noted here as a related near-duplicate concept.
-
-## Table: CoverageSlice
-
-**Description:** One PhilHealth membership-category slice, for the Revenue dashboard's PhilHealth coverage donut chart.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| category | string | — | Membership category, e.g. `"Employed"`, `"Indigent/4Ps"`. |
-| count | number | — | Estimated member count in this category. |
-| color | string | — | Hex color. |
-
-### Relationships
-- Directly derived from `PH_MEMBERSHIP_DISTRIBUTION` (category names, shares, and colors all sourced from that `ph-constants.ts` constant) — informal FK.
-
-### Source
-`src/lib/analytics/revenue.mock.ts`, computed inline from `PH_MEMBERSHIP_DISTRIBUTION`, embedded in `RevenueData.philhealthCoverage`.
-
-### Notes
-None.
-
-## Table: ScPwdPoint
-
-**Description:** One month of Senior Citizen/PWD discount volume and value, for trend charting.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| month | string | — | Month label. |
-| patients | number | — | Count of SC/PWD patients. |
-| discountAmount | number | — | PHP discount amount given. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/revenue.mock.ts`, computed inline over a 6-month window, embedded in `RevenueData.scPwdTrend`.
-
-### Notes
-None.
-
-## Table: RevenueData (top-level wrapper)
-
-**Description:** Top-level payload returned by `getRevenueData()`/`fetchRevenueData()` for the Revenue Cycle & Billing Analytics dashboard.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| tenant | string | — | Facility name. |
-| period | string | — | Current period label. |
-| priorPeriod | string | — | Prior period label. |
-| kpis | inline `{grossRevenue, netRevenue, collectionRate, daysInAR, writeOffRate}` (each `{value, delta, ...}`) | — | KPI strip sub-object; `grossRevenue` adds `budget`, `daysInAR` adds `benchmark`. |
-| waterfall | WaterfallStep[] | — | See **WaterfallStep**. |
-| payerMix | PayerSlice (revenue)[] | — | See **PayerSlice (revenue)**. |
-| payerTrend | PayerTrendPoint (revenue)[] | — | See **PayerTrendPoint (revenue)**. |
-| departmentRevenue | DeptRevenueRow[] | — | See **DeptRevenueRow**. |
-| arAging | ARAgingRow[] | — | See **ARAgingRow**. |
-| arOver90 | ARPatientRow[] | — | See **ARPatientRow**. |
-| collectionTrend | CollectionPoint[] | — | See **CollectionPoint**. |
-| funnel | FunnelStage (revenue)[] | — | See **FunnelStage (revenue)**. |
-| philhealthCoverage | CoverageSlice[] | — | See **CoverageSlice**. |
-| scPwdTrend | ScPwdPoint[] | — | See **ScPwdPoint**. |
-
-### Relationships
-- Aggregates all tables in this file.
-
-### Source
-`src/lib/analytics/revenue.mock.ts`, produced by `getRevenueData()` / `fetchRevenueData()`.
-
-### Notes
-`REV` (a hardcoded hex-color object, not a type) is also exported for reuse by consuming chart components.
-
----
-
-## File: `src/lib/analytics/claims.mock.ts`
-
-Mock data for the PhilHealth Claims Analytics dashboard. **Zero imports from `ph-constants.ts`** (see Known Cross-File Inconsistencies #1) — every physician, diagnosis, surname, and case-type value is declared locally in this file.
-
-## Table: ClaimsKpis
-
-**Description:** The KPI-strip sub-object at the top of `ClaimsData`; documented as its own table because it is a distinct named interface, even though it is only ever used nested inside `ClaimsData.kpis`.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| submittedMtd | inline `{count, amount, delta}` | — | Claims submitted month-to-date. |
-| pendingRtn | inline `{count, oldestDays, delta}` | — | Claims pending RTN (Return-to-Nurse/Hospital) response. |
-| approved | inline `{count, amount, rate, delta}` | — | Approved claims. |
-| denied | inline `{count, amount, rate, delta}` | — | Denied claims. |
-| avgDaysToRtn | inline `{value, target, delta}` | — | Average days to RTN. |
-| expectedRemittance | inline `{amount, delta}` | — | Expected PhilHealth remittance. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/claims.mock.ts`, hardcoded object, embedded in `ClaimsData.kpis`.
-
-### Notes
-All 6 sub-fields are anonymous inline object shapes, not separately named types.
-
-## Table: PipelineStage
-
-**Description:** One stage of the claims-submission pipeline (Drafted → Validated → Submitted → RTN Received → Approved → Remittance Received).
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| stage | string | — | Stage label. |
-| count | number | — | Claim count at this stage. |
-| value | number | — | PHP value of claims at this stage. |
-
-### Relationships
-- `stage` value informally keys `pipelineWorklists: Record<string, WorklistClaim[]>` on `ClaimsData`.
-
-### Source
-`src/lib/analytics/claims.mock.ts`, hardcoded 6-row array, embedded in `ClaimsData.pipeline`.
-
-### Notes
-Distinct from `revenue.mock.ts`'s `FunnelStage` — see that table's Notes.
-
-## Table: DenialTrendPoint
-
-**Description:** One month of denial-rate trend by case type, with optional policy-change annotation.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| month | string | — | Month label. |
-| overall | number | — | Overall denial rate percentage. |
-| ordinary | number | — | Denial rate for Ordinary case type. |
-| catastrophic | number | — | Denial rate for Catastrophic case type. |
-| zBenefit | number | — | Denial rate for Z-Benefit case type. |
-| policyChange | string (optional) | — | Free-text annotation for a policy change that occurred that month (only set on 2 of 12 rows). |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/claims.mock.ts`, computed inline over 12 months, embedded in `ClaimsData.denialTrend`.
-
-### Notes
-None.
-
-## Table: DenialReasonRow
-
-**Description:** One PhilHealth claim-denial reason, with trend direction and remediation action — the Claims dashboard's more detailed sibling of `executive.mock.ts`'s `DenialReason`.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| code | string | PK | Denial code, e.g. `"DR-101"`. |
-| reason | string | — | Short reason label. |
-| description | string | — | Longer explanation of the denial cause. |
-| count | number | — | Claim count for this reason. |
-| pctOfTotal | number | — | Percentage of total denials this reason represents. |
-| valueAtRisk | number | — | PHP value at risk. |
-| trend | `"better" \| "worse" \| "flat"` | — | Trend direction vs. prior period. |
-| action | string | — | Recommended remediation action. |
-
-### Relationships
-- Same 5 underlying denial-reason codes as `executive.mock.ts`'s `DenialReason` array (`DR-101, DR-204, DR-118, DR-330, DR-402`) plus 5 additional codes unique to this file (`DR-512, DR-215, DR-610, DR-140, DR-720`) — informally overlapping content, independently declared/typed.
-
-### Source
-`src/lib/analytics/claims.mock.ts`, hardcoded 10-row array, embedded in `ClaimsData.denialReasons`.
-
-### Notes
-None.
-
-## Table: CaseTypeTreemapRow
-
-**Description:** One PhilHealth case-type's claim volume and average value, for the case-type treemap.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| name | string | PK | Case type name, e.g. `"Ordinary"`, `"Catastrophic"`, `"Konsulta"`. |
-| size | number | — | Claim count (drives treemap tile size). |
-| avgValue | number | — | Average PHP value per claim of this case type. |
-
-### Relationships
-- `name` informally keys `caseTypeDetail: Record<string, {...}>` on `ClaimsData`.
-
-### Source
-`src/lib/analytics/claims.mock.ts`, hardcoded 8-row array, embedded in `ClaimsData.caseTypeTreemap`.
-
-### Notes
-None.
-
-## Table: PhysicianClaimRow
-
-**Description:** One physician's claims-submission performance summary.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| physician | string | PK (informal) | Physician name, from this file's own local 8-name `physicians` array (an exact literal duplicate of the first 8 `PH_PHYSICIANS` values, not imported — see Known Cross-File Inconsistencies #1). |
-| submitted | number | — | Claims submitted. |
-| approvalRate | number | — | Approval rate percentage. |
-| denialRate | number | — | Denial rate percentage (hardcoded per-physician array of 8 literal values). |
-| commonDenialReason | string | FK -> DenialReasonRow.reason (informal) | Most common denial reason for this physician, looked up positionally (`i % denialReasons.length`) from `denialReasons`. |
-| revenue | number | — | PHP revenue attributed to this physician. |
-
-### Relationships
-- `commonDenialReason` is a positional (index-modulo) informal lookup into `denialReasons`, not a real join — the reason is not necessarily actually the "most common" one for that physician, just deterministically assigned.
-
-### Source
-`src/lib/analytics/claims.mock.ts`, computed inline, embedded in `ClaimsData.physicians`.
-
-### Notes
-None.
-
-## Table: CaseRateScatterPoint
-
-**Description:** One diagnosis's case-rate-vs-actual-charge comparison point, for the claims variance scatter plot.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| icd10 | string | — | ICD-10 code, from this file's own local 20-entry `diagnoses` tuple list. |
-| description | string | — | Diagnosis description. |
-| caseType | string | FK -> CaseTypeTreemapRow.name (informal) | Case type for this diagnosis. |
-| caseRate | number | — | PhilHealth case rate in PHP. |
-| actualCharge | number | — | Actual charged amount in PHP (case rate ± a margin). |
-| patientCount | number | — | Patient count for this diagnosis. |
-| color | string | — | Hex color, looked up from `CASE_TYPE_COLORS[caseType]`. |
-
-### Relationships
-- `color` is an informal FK lookup into the local `CASE_TYPE_COLORS` record via `caseType`.
-
-### Source
-`src/lib/analytics/claims.mock.ts`, computed inline over the local `diagnoses` list, embedded in `ClaimsData.caseRateScatter`.
-
-### Notes
-None.
-
-## Table: CoverageDiagnosisRow
-
-**Description:** One diagnosis's case-rate-coverage-gap row (actual cost vs. case-rate target), sorted by largest gap first.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| code | string | — | ICD-10 code. |
-| description | string | — | Diagnosis description. |
-| actualCost | number | — | Actual PHP cost. |
-| caseRateTarget | number | — | PhilHealth case-rate target in PHP. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/claims.mock.ts`, computed inline over the first 20 local `diagnoses` entries, embedded in `ClaimsData.coverageDiagnoses`.
-
-### Notes
-None.
-
-## Table: WorklistClaim
-
-**Description:** One claim row inside a pipeline-stage worklist (drill-down for `PipelineStage`).
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| claimId | string | PK | Claim id, e.g. `"CLM-2026-5100"`. |
-| patient | string | — | Patient display name (built from a local surname/given-name pool, not `phPatientName()`). |
-| caseType | string | FK -> CaseTypeTreemapRow.name (informal) | Case type. |
-| icd10 | string | — | ICD-10 code. |
-| amount | number | — | PHP claim amount. |
-| daysInStage | number | — | Days the claim has been in its current pipeline stage. |
-
-### Relationships
-- Value of `Record<string, WorklistClaim[]>` (`pipelineWorklists`) keyed by `PipelineStage.stage`.
-
-### Source
-`src/lib/analytics/claims.mock.ts`, produced by `buildWorklist(stage, 14)` for each pipeline stage, embedded in `ClaimsData.pipelineWorklists`.
-
-### Notes
-None.
-
-## Table: ClaimsData (top-level wrapper)
-
-**Description:** Top-level payload returned by `getClaimsData()`/`fetchClaimsData()` for the PhilHealth Claims Analytics dashboard.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| tenant | string | — | Facility name. |
-| period | string | — | Current period label. |
-| priorPeriod | string | — | Prior period label. |
-| kpis | ClaimsKpis | — | See **ClaimsKpis**. |
-| pipeline | PipelineStage[] | — | See **PipelineStage**. |
-| pipelineWorklists | Record<string, WorklistClaim[]> | — | See **WorklistClaim**. |
-| denialTrend | DenialTrendPoint[] | — | See **DenialTrendPoint**. |
-| denialReasons | DenialReasonRow[] | — | See **DenialReasonRow**. |
-| caseTypeTreemap | CaseTypeTreemapRow[] | — | See **CaseTypeTreemapRow**. |
-| caseTypeDetail | inline `Record<string, {topDiagnoses: {code,description,count}[]; avgCaseRate: number; approvalRate: number}>` | — | Per-case-type detail, keyed by `CaseTypeTreemapRow.name`; value is an anonymous shape, not a named type. |
-| physicians | PhysicianClaimRow[] | — | See **PhysicianClaimRow**. |
-| caseRateScatter | CaseRateScatterPoint[] | — | See **CaseRateScatterPoint**. |
-| coverageDiagnoses | CoverageDiagnosisRow[] | — | See **CoverageDiagnosisRow**. |
-
-### Relationships
-- Aggregates all tables in this file.
-
-### Source
-`src/lib/analytics/claims.mock.ts`, produced by `getClaimsData()` / `fetchClaimsData()`.
-
-### Notes
-None.
-
----
-
-## File: `src/lib/analytics/quality.mock.ts`
-
-Mock data for the Quality & Patient Safety Analytics dashboard. **Zero imports from `ph-constants.ts`** (see Known Cross-File Inconsistencies #1) — physicians/surgeons, department lists, and prescription departments are all declared locally, and diverge in naming from `PH_DEPARTMENTS`/`PH_PHYSICIANS`.
-
-## Table: HacPoint
-
-**Description:** One period's Hospital-Acquired Condition (HAC) rate, styled as a statistical process control (SPC) chart point with mean/UCL/LCL control limits.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| period | string | — | Period label. |
-| rate | number | — | HAC rate for the period. |
-| mean | number | — | Control-chart center line (flat `2.4` for all rows). |
-| ucl | number | — | Upper control limit (flat `4.1`). |
-| lcl | number | — | Lower control limit (flat `0.7`). |
-| category | string | FK -> hacCategories (informal) | HAC category assigned to this period, e.g. `"SSI"`, `"CAUTI"`, `"CLABSI"`, `"VAP"`, `"Falls"`, `"Pressure Injuries"` (cycled positionally, not necessarily the actual driver of that period's rate). |
-| specialCause | boolean | — | True if `rate > ucl \|\| rate < lcl` (SPC "special cause" flag), computed at build time. |
-
-### Relationships
-- `category` cycles through the local `hacCategories: string[]` constant (not a named type — a plain 6-item string array).
-
-### Source
-`src/lib/analytics/quality.mock.ts`, produced by `buildHac()`, embedded in `QualityData.hac`.
-
-### Notes
-None.
-
-## Table: MedErrorPoint
-
-**Description:** One month of medication-error counts by error type.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| month | string | — | Month label. |
-| wrongDrug | number | — | Wrong-drug error count. |
-| wrongDose | number | — | Wrong-dose error count. |
-| wrongRoute | number | — | Wrong-route error count. |
-| wrongPatient | number | — | Wrong-patient error count. |
-| omission | number | — | Omission error count. |
-| total | number | — | Sum of the 5 error-type counts, computed at build time. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/quality.mock.ts`, produced by `buildMedErrors()`, embedded in `QualityData.medErrors`.
-
-### Notes
-None.
-
-## Table: HandHygieneUnit
-
-**Description:** One hospital unit's hand-hygiene compliance rate.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| unit | string | — | Unit name, e.g. `"Medicine Ward"`, `"ICU"` (local 7-item list, distinct from the report module's `wards` list in `hospital.mock.tsx`, which has 8 items and different names like `"Isolation"`, `"Orthopedic Ward"`, `"Private Rooms"`). |
-| compliance | number | — | Compliance percentage. |
-| target | number | — | Target percentage (flat `80` for all rows). |
-| observations | number | — | Number of hand-hygiene observations recorded. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/quality.mock.ts`, produced by `buildHandHygieneUnits()`, embedded in `QualityData.handHygiene.byUnit`.
-
-### Notes
-None.
-
-## Table: SsiSurgeon
-
-**Description:** One surgeon's Surgical Site Infection (SSI) rate vs. expected/risk-adjusted rate, with outlier flag.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| surgeon | string | — | Surgeon name, from this file's own local 10-name `surgeons` array (near-duplicate of, but not identical to, `PH_PHYSICIANS` — see Known Cross-File Inconsistencies #1). |
-| department | string | FK -> surgeonDepts (informal) | Department, from a local 4-item list (`Surgery, Orthopedics, Obstetrics, Cardiology`). |
-| caseVolume | number | — | Surgical case volume. |
-| observedRate | number | — | Observed SSI rate (risk-adjusted by an inverse-sqrt-of-volume jitter formula). |
-| expectedRate | number | — | Expected SSI rate (flat `2.1` for all rows). |
-| outlier | boolean | — | True if `observedRate` is >1.8× or <0.25× `expectedRate`. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/quality.mock.ts`, produced by `buildSsiSurgeons()`, embedded in `QualityData.ssi.surgeons`.
-
-### Notes
-None.
-
-## Table: PrescriptionDept
-
-**Description:** One department's generic-prescribing, antibiotic-prescribing, and polypharmacy rates.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| department | string | FK -> PH_DEPARTMENTS (informal, imperfect) | Department name, from a local 7-item list that uses `"Emergency"` where `PH_DEPARTMENTS` uses `"Emergency Medicine"` — a naming mismatch (see Known Cross-File Inconsistencies #1). |
-| genericRate | number | — | Percentage of orders that are generic. |
-| antibioticRate | number | — | Percentage of orders that are antibiotics. |
-| polypharmacyRate | number | — | Percentage of patients on polypharmacy. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/quality.mock.ts`, produced by `buildPrescriptions()`, embedded in `QualityData.prescriptions.departments`.
-
-### Notes
-None.
-
-## Table: QualityData (top-level wrapper)
-
-**Description:** Top-level payload returned by `getQualityData()`/`fetchQualityData()` for the Quality & Patient Safety Analytics dashboard.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| tenant | string | — | Facility name. |
-| period | string | — | Current period label. |
-| priorPeriod | string | — | Prior period label. |
-| kpi | inline `{hacRate, medErrorsMtd, handHygiene, ssiRate, genericPrescribing}` (each `{value, delta}`) | — | KPI strip sub-object, derived from the last row of each underlying series. |
-| hacCategories | string[] | — | The 6 HAC category labels (plain array, no backing type). |
-| hac | HacPoint[] | — | See **HacPoint**. |
-| medErrors | MedErrorPoint[] | — | See **MedErrorPoint**. |
-| handHygiene | inline `{overall: number; target: number; trend: {month,value}[]; byUnit: HandHygieneUnit[]}` | — | `byUnit` -> **HandHygieneUnit[]**. |
-| ssi | inline `{surgeons: SsiSurgeon[]; overallExpectedRate: number}` | — | `surgeons` -> **SsiSurgeon[]**. |
-| prescriptions | inline `{departments: PrescriptionDept[]; targets: {genericRate,antibioticRate,polypharmacyRate}}` | — | `departments` -> **PrescriptionDept[]**. |
-
-### Relationships
-- Aggregates `HacPoint`, `MedErrorPoint`, `HandHygieneUnit`, `SsiSurgeon`, `PrescriptionDept`.
-
-### Source
-`src/lib/analytics/quality.mock.ts`, produced by `getQualityData()` / `fetchQualityData()`.
-
-### Notes
-None.
-
----
-
-## File: `src/lib/analytics/laboratory.mock.ts`
-
-Mock data for the Laboratory Analytics dashboard. **Zero imports from `ph-constants.ts`** (see Known Cross-File Inconsistencies #1) — no physician roster is used at all; department names (`orderingDepartments`) are a locally-declared 6-item list that does not match `PH_DEPARTMENTS` naming.
-
-## Table: VolumeTrendPoint
-
-**Description:** One month of lab test volume broken out by category.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| month | string | — | Month label. |
-| Hematology | number | — | Test volume for Hematology. |
-| Chemistry | number | — | Test volume for Chemistry. |
-| Urinalysis | number | — | Test volume for Urinalysis. |
-| Microbiology | number | — | Test volume for Microbiology. |
-| Immunology | number | — | Test volume for Immunology. |
-| Serology | number | — | Test volume for Serology. |
-| Other | number | — | Test volume for Other. |
-
-### Relationships
-- Field names (PascalCase) exactly mirror the `LabCategory` union's 7 literal values.
-
-### Source
-`src/lib/analytics/laboratory.mock.ts`, computed inline over 12 months, embedded in `LaboratoryData.volumeTrend`.
-
-### Notes
-None.
-
-## Table: TatOutlier
-
-**Description:** One turn-around-time (TAT) outlier case, for drill-down under a `TatBoxStat` box-plot category.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | PK | Outlier id, e.g. `"TAT-HEM-1011"`. |
-| category | LabCategory | FK -> TatBoxStat.category (informal) | Lab category. |
-| patient | string | — | Patient display name, from this file's own local `patientName()` helper (own surname/first-name pool, not `phPatientName()` — see Known Cross-File Inconsistencies #4 note). |
-| patientId | string | — | Patient id. |
-| test | string | — | Test name, e.g. `"Hematology panel"`. |
-| orderedAt | string | — | `"YYYY-MM-DD HH:MM"` timestamp string (not strict ISO 8601 — no `T` separator). |
-| releasedAt | string | — | `"YYYY-MM-DD HH:MM"` timestamp string. |
-| tatMinutes | number | — | Turn-around time in minutes. |
-| delayReason | string | — | Free-text delay explanation, from a 6-item local pool. |
-
-### Relationships
-- `category` value is passed in from the enclosing `TatBoxStat.category`.
-
-### Source
-`src/lib/analytics/laboratory.mock.ts`, produced by `buildOutliers()`, embedded in `TatBoxStat.outliers`.
-
-### Notes
-None.
-
-## Table: TatBoxStat
-
-**Description:** One lab category's TAT distribution, styled as box-plot statistics (min/q1/median/q3/max) with a target and outlier cases.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| category | LabCategory | PK (informal) | Lab category. |
-| min | number | — | Minimum TAT in minutes. |
-| q1 | number | — | First-quartile TAT in minutes. |
-| median | number | — | Median TAT in minutes. |
-| q3 | number | — | Third-quartile TAT in minutes. |
-| max | number | — | Maximum TAT in minutes. |
-| targetTat | number | — | Target TAT in minutes. |
-| outliers | TatOutlier[] | — | See **TatOutlier**. |
-
-### Relationships
-- Contains `TatOutlier[]` directly (not a separate `Record` lookup, unlike most other drill-down patterns in this codebase).
-
-### Source
-`src/lib/analytics/laboratory.mock.ts`, hardcoded 7-row array (one per `LabCategory`), embedded in `LaboratoryData.tatBox`.
-
-### Notes
-None.
-
-## Table: CriticalResponseBar
-
-**Description:** One lab-category × ordering-department critical-result response-time compliance bar.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| category | LabCategory | FK -> TatBoxStat.category (informal) | Lab category (first 6 of the 7 `categories`, i.e. excludes `"Other"`). |
-| department | string | FK -> orderingDepartments (informal) | Ordering department (first 4 of the local 6-item `orderingDepartments` list). |
-| withinTargetPct | number | — | Percentage of critical results notified within target time. |
-| target | number | — | Target percentage (flat `100`). |
-| sampleSize | number | — | Sample size for this category/department combination. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/laboratory.mock.ts`, built via nested `forEach` over categories × departments, embedded in `LaboratoryData.criticalBars`.
-
-### Notes
-None.
-
-## Table: CriticalNotification
-
-**Description:** One individual critical-result notification event.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | PK | Notification id, e.g. `"CRIT-2000"`. |
-| category | LabCategory | FK -> TatBoxStat.category (informal) | Lab category. |
-| department | string | FK -> orderingDepartments (informal) | Ordering department. |
-| test | string | — | Test name, e.g. `"Chemistry critical value"`. |
-| patient | string | — | Patient display name, from the local `patientName()` helper. |
-| minutesToNotify | number | — | Minutes elapsed before the result was communicated. |
-| outlier | boolean | — | True if `minutesToNotify > 30`. |
-
-### Relationships
-None identified beyond the informal FKs.
-
-### Source
-`src/lib/analytics/laboratory.mock.ts`, computed inline (42 rows), embedded in `LaboratoryData.criticalNotifications`.
-
-### Notes
-None.
-
-## Table: AbnormalTestRow
-
-**Description:** One lab test's total-results and abnormal-rate summary, top 20 by abnormal rate.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| test | string | — | Test name, from a 23-item local `testCatalog`. |
-| category | LabCategory | FK -> TatBoxStat.category (informal) | Lab category. |
-| totalResults | number | — | Total results for this test in the period. |
-| abnormalPct | number | — | Percentage of results flagged abnormal. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/laboratory.mock.ts`, computed from `testCatalog`, sorted desc by `abnormalPct`, sliced to top 20, embedded in `LaboratoryData.abnormalTests`.
-
-### Notes
-None.
-
-## Table: UnmappedTest
-
-**Description:** One lab test that lacks a LOINC code mapping.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| test | string | — | Test name. |
-| category | LabCategory | FK -> TatBoxStat.category (informal) | Lab category. |
-| monthlyVolume | number | — | Monthly test volume. |
-| priority | `"High" \| "Medium" \| "Low"` | — | Mapping-effort priority. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/laboratory.mock.ts`, hardcoded 6-row array, embedded in `LaboratoryData.loinc.unmapped`.
-
-### Notes
-None.
-
-## Table: LaboratoryData (top-level wrapper)
-
-**Description:** Top-level payload returned by `getLaboratoryData()`/`fetchLaboratoryData()` for the Laboratory Analytics dashboard.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| tenant | string | — | Facility name. |
-| period | string | — | Current period label. |
-| kpis | inline `{totalTestsMtd, totalTestsDelta, tatCompliancePct, criticalResponseCompliancePct, abnormalRatePct, loincMappedPct}` (all `number`) | — | KPI strip sub-object. |
-| volumeTrend | VolumeTrendPoint[] | — | See **VolumeTrendPoint**. |
-| tatBox | TatBoxStat[] | — | See **TatBoxStat**. |
-| criticalBars | CriticalResponseBar[] | — | See **CriticalResponseBar**. |
-| criticalNotifications | CriticalNotification[] | — | See **CriticalNotification**. |
-| abnormalTests | AbnormalTestRow[] | — | See **AbnormalTestRow**. |
-| loinc | inline `{mappedCount: number; totalCount: number; unmapped: UnmappedTest[]}` | — | `unmapped` -> **UnmappedTest[]**. |
-
-### Relationships
-- Aggregates all tables in this file.
-
-### Source
-`src/lib/analytics/laboratory.mock.ts`, produced by `getLaboratoryData()` / `fetchLaboratoryData()`.
-
-### Notes
-`LabCategory` (`"Hematology" | "Chemistry" | "Urinalysis" | "Microbiology" | "Immunology" | "Serology" | "Other"`) is a trivial type alias, not tabled separately, but referenced as an FK-like value throughout this file's tables.
-
----
-
-## File: `src/lib/analytics/cohort.mock.ts`
-
-Synthetic patient-level dataset for the Hospital Cohort Builder (`/analytics/cohorts`) — a wider (300-row) sample than the ~300/month admissions volume on the Executive dashboard, so cohort filters have enough rows to behave meaningfully. Imports `PH_DEPARTMENTS, PH_PAYER_MIX, PH_TOP_DIAGNOSES, phPatientName` from `ph-constants.ts` and calls `phPatientName` correctly.
-
-## Table: CohortPatient
-
-**Description:** One synthetic patient row for the Cohort Builder query tool. There is no separate "Data" wrapper interface for this file — the primary export is a flat `CohortPatient[]` array, not a wrapped object.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| patientId | string | PK | Patient id, e.g. `"PT-2026-1000"`. |
-| name | string | — | Patient display name, from `phPatientName()`. |
-| age | number | — | Patient age, 1–88. |
-| gender | `"male" \| "female"` | — | Patient gender. |
-| department | string | FK -> PH_DEPARTMENTS (informal) | Department. |
-| diagnosisCode | string | FK -> IcdEntry.code (informal) | ICD-10 code, from `PH_TOP_DIAGNOSES`. |
-| diagnosisDesc | string | — | Diagnosis description. |
-| payer | string | FK -> weighted payer list (informal) | Payer name, drawn using a weighted-random selection based on `PH_PAYER_MIX` fractions. |
-| admissionType | `"Emergency" \| "Elective" \| "Transfer-in" \| "Newborn"` | — | Admission type. |
-| lastEncounterDate | string | — | ISO date (`YYYY-MM-DD`) of the last encounter, within a ~7-month window of 2026. |
-| readmitted30d | boolean | — | True if `seeded(i, 50) > 0.82` (≈18% of rows). |
-| labAbnormalFlag | boolean | — | True if `seeded(i, 51) > 0.7` (≈30% of rows). |
-
-### Relationships
-- `payer` selection uses `PH_PAYER_MIX` fractions (`philhealth, hmo, privatePay, scpwd`, and `gsis + writeoff` combined into one "GSIS/Other" bucket) as weights — informal, computed relationship, not a stored FK.
-
-### Source
-`src/lib/analytics/cohort.mock.ts`, produced by `buildCohortPatients(300)`, exported as `cohortPatients: CohortPatient[]`, wrapped by `fetchCohortPatients()`.
-
-### Notes
-This file also exports `cohortDepartments`, `cohortPayers`, `cohortAdmissionTypes`, `cohortDiagnoses` as convenience re-exports of the filter option lists used to build `CohortPatient` rows — not separate types.
-
----
-
-## File: `src/lib/analytics/temporal.mock.ts`
-
-Hour × weekday visit-volume mock data for the Temporal Pattern Analysis tool (`/analytics/patterns`). Models two service-type profiles: OPD (business-hours-heavy) and Emergency (24/7 with an evening/weekend surge). Imports `HourWeekdayCell` (type-only) from `@/components/analytics/temporal-heatmap` and `PH_DEPARTMENTS` from `ph-constants.ts`.
-
-## Table: TemporalDataset (top-level wrapper)
-
-**Description:** Top-level payload returned by `getTemporalData()`/`fetchTemporalData()` for the hospital Temporal Pattern Analysis tool.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| opd | HourWeekdayCell[] | — | 168-cell (7 days × 24 hours) OPD visit-volume grid. See **HourWeekdayCell**. |
-| emergency | HourWeekdayCell[] | — | 168-cell Emergency visit-volume grid. See **HourWeekdayCell**. |
-
-### Relationships
-- Both fields are `HourWeekdayCell[]` imported from the shared component file (see Part 2), not redeclared locally.
-
-### Source
-`src/lib/analytics/temporal.mock.ts`, produced by `getTemporalData()` / `fetchTemporalData()`.
-
-### Notes
-This file also exports `TEMPORAL_DEPARTMENTS = PH_DEPARTMENTS` (re-export, not a type) and a helper function `departmentBreakdownFor(day, hour, total)` that returns an inline `{name: string; value: number}[]` (not a named type) for drill-down when a heatmap cell is clicked.
-
----
-
-## File: `src/lib/analytics/alerts.mock.ts`
-
-Static hospital alert data for the Alert & Notification Center tool. No local interfaces — imports `AlertItem` (type-only) from `@/components/analytics/alert-center` and exports two plain `AlertItem[]` constants. No "Data" wrapper interface exists for this file.
-
-- `hospitalAlerts: AlertItem[]` — 9 initial alerts (3 critical, 3 warning, 3 info).
-- `hospitalAlertRefreshPool: AlertItem[]` — 3 alerts used as a pool the UI's "Refresh" button pulls from, cycling through them.
-
-See **AlertItem** in Part 2 for the field-level table. Source: `src/lib/analytics/alerts.mock.ts`.
-
----
-
-# Part 4 — Hospital Reports (`src/lib/reports/hospital.mock.tsx`)
-
-10 report configs (R-01..R-10), each an object conforming to the generic `ReportConfig<T>` type from `src/components/reports/types.ts` (columns, filters, drawer detail, and `getRows: () => T[]` all defined per report; not itself part of the mock-data file set in scope, so not tabled here). **Every row-shape interface below (`CensusRow`, `LogbookRow`, `MorbidityRow`, `ClaimRow`, `DenialRow`, `RevenueRow`, `PhysicianActivityRow`, `LabWorkloadRow`, `FormularyRow`, `DischargeAuditRow`) is declared with a plain `interface` keyword and no `export`** — they are file-local and only inferable from usage inside this file; there is no separate "Data" wrapper object per report (each report's `getRows()` function returns `T[]` directly, and the file's true top-level export is the array `hospitalReports: AnyReportConfig[]`, documented at the end of this Part). Imports `PH_DEPARTMENTS, PH_PHYSICIANS, PH_TOP_DIAGNOSES, phPatientName` from `ph-constants.ts` — but see Known Cross-File Inconsistencies #4 for the dead `phPatientName` import.
-
-## Table: CensusRow (R-01 Daily Census Report)
-
-**Description:** One ward/day bed-census snapshot.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| date | string | — | ISO date, last 21 days. |
-| ward | string | FK -> local `wards` list (informal) | Ward name, from an 8-item local list (`Medicine Ward, Surgery Ward, OB Ward, Pedia Ward, ICU, Isolation, Orthopedic Ward, Private Rooms`). |
-| capacity | number | — | Bed capacity for the ward (`20 + wardIndex * 6`). |
-| occupied | number | — | Beds occupied. |
-| admissionsToday | number | — | Admissions that day. |
-| dischargesToday | number | — | Discharges that day. |
-| pendingDischarges | number | — | Discharges pending clearance. |
-
-### Relationships
-None identified. Derived columns `available` and `bor` (BOR%) are computed at render time by the report's column `render`/`sortValue` functions, not stored on the row.
-
-### Source
-`src/lib/reports/hospital.mock.tsx`, file-local (not exported) interface, produced by `buildCensusRows()`, report id `daily-census` (code `R-01`).
-
-### Notes
-Not exported — only inferable from usage within this file.
-
-## Table: LogbookRow (R-02 Admission & Discharge Logbook)
-
-**Description:** One chronological admission/discharge log entry.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| caseNo | string | PK | Case number, e.g. `"CN-2026-4200"`. |
-| patient | string | — | Patient name, from local `personName()` (not `phPatientName()`). |
-| age | number | — | Patient age. |
-| sex | `"M" \| "F"` | — | Patient sex (note: `"M"/"F"` codes, unlike the `"male"/"female"` string union used elsewhere in the codebase — an inconsistent representation of the same concept). |
-| dateAdmitted | string | — | ISO date admitted. |
-| dateDischarged | string \| null | — | ISO date discharged, or `null` if still admitted. |
-| los | number | — | Length of stay in days. |
-| icd10 | string | FK -> IcdEntry.code (informal) | ICD-10 code, from `PH_TOP_DIAGNOSES`. |
-| diagnosis | string | — | Diagnosis description. |
-| disposition | string | FK -> local `dispositions` list (informal) | Discharge disposition. |
-| physician | string | FK -> PH_PHYSICIANS (informal) | Attending physician name. |
-| department | string | FK -> PH_DEPARTMENTS (informal) | Department. |
-| philhealthPin | string | — | Synthetic PhilHealth PIN, format `NN-NNNNNNNNN-N`. |
-| payer | string | FK -> local `payers` list (informal) | Payer name. |
-
-### Relationships
-None beyond the informal FKs noted.
-
-### Source
-`src/lib/reports/hospital.mock.tsx`, file-local (not exported) interface, produced by `buildLogbook()` (60 rows), report id `admission-discharge-logbook` (code `R-02`).
-
-### Notes
-Not exported.
-
-## Table: MorbidityRow (R-03 Morbidity Summary — hospital)
-
-**Description:** One ICD-10 × age-group × period morbidity count row, formatted to match the DOH Form CY-2 layout. **Same name as, but a different shape from,** `MorbidityRow` in `lgu/executive.mock.ts` — see Known Cross-File Inconsistencies #3.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| icd10 | string | FK -> IcdEntry.code (informal) | ICD-10 code. |
-| diagnosis | string | — | Diagnosis description. |
-| ageGroup | string | FK -> local `ageGroups` list (informal) | Age group, one of `"0–4", "5–14", "15–49", "50–64", "65+"`. |
-| male | number | — | Male case count. |
-| female | number | — | Female case count. |
-| period | `"Monthly" \| "Annual"` | — | Reporting period; Annual rows are the Monthly base value × 12. |
-
-### Relationships
-None identified. `total` and `rate per 1000` are derived at render time, not stored fields.
-
-### Source
-`src/lib/reports/hospital.mock.tsx`, file-local (not exported) interface, produced by `buildMorbidity()` (12 diagnoses × 5 age groups × 2 periods = 120 rows), report id `morbidity-summary` (code `R-03`).
-
-### Notes
-Not exported. Name collides with `lgu/executive.mock.ts`'s exported `MorbidityRow` but the two are unrelated, differently-shaped interfaces.
-
-## Table: ClaimRow (R-04 PhilHealth Claims Register)
-
-**Description:** One complete PhilHealth claim ledger row.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| claimId | string | PK | Claim id, e.g. `"CLM-2026-9000"`. |
-| patient | string | — | Patient name, from local `personName()`. |
-| pin | string | — | Synthetic PhilHealth PIN. |
-| hciCaseNo | string | — | Health Care Institution case number. |
-| rtn | string | — | Return-to-Nurse/Hospital tracking number. |
-| tcn | string | — | Transaction control number. |
-| dateSubmitted | string | — | ISO date submitted. |
-| caseType | string | FK -> local `caseTypes` list (informal) | Case type (`Ordinary, Catastrophic, Day Surgery, Z-Benefit, Konsulta`). |
-| grossCharges | number | — | Gross PHP charges. |
-| cr1 | number | — | PhilHealth CR1 (Case Rate 1) amount, ≈70% of gross. |
-| cr2 | number | — | PhilHealth CR2 (Case Rate 2) amount, ≈20% of gross. |
-| patientShare | number | — | `max(0, grossCharges - cr1 - cr2)`. |
-| status | string | FK -> local `claimStatuses` list (informal) | Claim status (`Submitted, RTN Pending, Approved, Denied, Returned-to-Hospital`). |
-| dateApproved | string \| null | — | ISO date approved, if `status` is Approved/Denied. |
-| remittanceDate | string \| null | — | ISO date remitted, if `status` is Approved. |
-| amountRemitted | number | — | PHP amount remitted. |
-| department | string | FK -> PH_DEPARTMENTS (informal) | Department. |
-| physician | string | FK -> PH_PHYSICIANS (informal) | Attending physician name. |
-
-### Relationships
-None beyond the informal FKs noted. `variance` (`amountRemitted - (cr1+cr2)`) is derived at render time.
-
-### Source
-`src/lib/reports/hospital.mock.tsx`, file-local (not exported) interface, produced by `buildClaims()` (70 rows), report id `philhealth-claims-register` (code `R-04`).
-
-### Notes
-Not exported.
-
-## Table: DenialRow (R-05 Denial & Appeal Tracker)
-
-**Description:** One denied claim's appeal-tracking status.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| claimId | string | PK | Claim id, e.g. `"CLM-2026-8500"`. |
-| patient | string | — | Patient name, from local `personName()`. |
-| denialDate | string | — | ISO date denied. |
-| denialCode | string | FK -> local `denialReasonPool` (informal) | Denial code, e.g. `"DR-101"` (5-item pool, same 5 codes as `executive.mock.ts`'s `DenialReason`). |
-| denialReason | string | — | Denial reason label. |
-| appealFiledDate | string \| null | — | ISO date the appeal was filed, or `null`. |
-| appealStatus | string | FK -> local `appealStatuses` list (informal) | Appeal status (`Not Filed, Filed — Pending, Under Review, Approved, Rejected`). |
-| rthStatus | string | — | `"Returned-to-Hospital"` or `"Not returned"` (roughly 1-in-3 rows). |
-| resolutionDate | string \| null | — | ISO date resolved, if `appealStatus` is Approved/Rejected. |
-| amountRecovered | number | — | PHP amount recovered, only nonzero if `appealStatus === "Approved"`. |
-| physician | string | FK -> PH_PHYSICIANS (informal) | Attending physician name. |
-
-### Relationships
-None beyond the informal FKs.
-
-### Source
-`src/lib/reports/hospital.mock.tsx`, file-local (not exported) interface, produced by `buildDenials()` (32 rows), report id `denial-appeal-tracker` (code `R-05`).
-
-### Notes
-Not exported.
-
-## Table: RevenueRow (R-06 Revenue & Collection Report)
-
-**Description:** One month × department financial summary row.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| month | string | — | Month label. |
-| isoDate | string | — | ISO first-of-month date. |
-| department | string | FK -> PH_DEPARTMENTS (informal) | Department. |
-| grossCharges | number | — | Gross PHP charges. |
-| scDiscount | number | — | Senior Citizen discount, 4% of gross. |
-| gsis | number | — | GSIS amount, 5% of gross. |
-| hmo | number | — | HMO amount, 18% of gross. |
-| philhealth | number | — | PhilHealth amount, 38% of gross. |
-| patientPayments | number | — | Patient payments, 22% of gross. |
-| outstandingAr | number | — | Outstanding AR, a seeded 3–16% of gross. |
-
-### Relationships
-None identified. `collectionRate` is derived at render time.
-
-### Source
-`src/lib/reports/hospital.mock.tsx`, file-local (not exported) interface, produced by `buildRevenue()` (12 months × 8 departments = 96 rows), report id `revenue-collection` (code `R-06`).
-
-### Notes
-Not exported.
-
-## Table: PhysicianActivityRow (R-07 Physician Activity Report)
-
-**Description:** One physician × month utilization/revenue summary row. Admin-only report (`roleNote: "Admin only"`).
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| physician | string | FK -> PH_PHYSICIANS (informal) | Physician name. |
-| pan | string | — | Synthetic PAN (Practitioner Accreditation Number), e.g. `"PAN-00214"`. |
-| specialty | string | FK -> PH_DEPARTMENTS (informal) | Specialty, assigned positionally from `PH_DEPARTMENTS` per physician. |
-| department | string | FK -> PH_DEPARTMENTS (informal) | Department (assigned positionally, independently of `specialty`'s positional index base). |
-| isoDate | string | — | ISO first-of-month date. |
-| cases | number | — | Case count that month. |
-| avgLos | number | — | Average length of stay. |
-| procedures | number | — | Procedure count. |
-| pfRevenue | number | — | Professional-fee PHP revenue. |
-| philhealthPfClaims | number | — | Count of PhilHealth professional-fee claims. |
-| approvalRate | number | — | Approval rate percentage. |
-
-### Relationships
-None beyond the informal FKs.
-
-### Source
-`src/lib/reports/hospital.mock.tsx`, file-local (not exported) interface, produced by `buildPhysicianActivity()` (15 physicians × 12 months = 180 rows), report id `physician-activity` (code `R-07`).
-
-### Notes
-Not exported.
-
-## Table: LabWorkloadRow (R-08 Laboratory Workload Report)
-
-**Description:** One lab test × month workload/TAT summary row.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| isoDate | string | — | ISO first-of-month date. |
-| test | string | — | Test name, from an 8-item local `labTests` list. |
-| loinc | string | — | LOINC code for the test. |
-| category | string | — | Lab category (free string, values overlap but are not FK'd to `LabCategory` from `laboratory.mock.ts`). |
-| ordersReceived | number | — | Orders received that month. |
-| ordersCompleted | number | — | Orders completed that month. |
-| avgTat | number | — | Average TAT in hours. |
-| criticalResults | number | — | Count of critical results. |
-
-### Relationships
-None identified. `ordersPending` and `abnormalRate` are derived at render time.
-
-### Source
-`src/lib/reports/hospital.mock.tsx`, file-local (not exported) interface, produced by `buildLabWorkload()` (8 tests × 12 months = 96 rows), report id `laboratory-workload` (code `R-08`).
-
-### Notes
-Not exported.
-
-## Table: FormularyRow (R-09 Prescription & Formulary Compliance Report)
-
-**Description:** One drug × physician generic-prescribing compliance row.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| generic | string | — | Generic drug name, e.g. `"Paracetamol"`, from an 8-item local `drugPool`. |
-| brandOrdered | string | — | Brand name ordered, e.g. `"Biogesic"`. |
-| orders | number | — | Order count. |
-| percentGeneric | number | — | Percentage of orders that were generic. |
-| inNf | boolean | — | Whether the drug is in the National Formulary. |
-| physician | string | FK -> PH_PHYSICIANS (informal) | Prescribing physician. |
-| department | string | FK -> PH_DEPARTMENTS (informal) | Department. |
-
-### Relationships
-None beyond the informal FKs.
-
-### Source
-`src/lib/reports/hospital.mock.tsx`, file-local (not exported) interface, produced by `buildFormulary()` (8 drugs × 15 physicians = 120 rows), report id `formulary-compliance` (code `R-09`).
-
-### Notes
-Not exported.
-
-## Table: DischargeAuditRow (R-10 Discharge Clearance Audit Report)
-
-**Description:** One patient's discharge-wizard-completion audit row.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| patient | string | — | Patient name, from local `personName()`. |
-| caseNo | string | — | Case number, e.g. `"CN-2026-5100"`. |
-| dischargeDate | string | — | ISO date discharged. |
-| stepsIncomplete | number | — | Count of incomplete discharge-wizard steps, 0–5. |
-| missingDocuments | string | FK -> local `missingDocPool` (informal) | Missing document label, e.g. `"CSF"`, `"None"`. |
-| claimStatus | string | FK -> local `claimStatuses` list (informal, shared with R-04) | Claim status. |
-| daysSinceDischarge | number | — | Days since discharge, 0–21. |
-| csfCollected | boolean | — | Whether the Claim Signature Form was collected. |
-
-### Relationships
-None beyond the informal FKs.
-
-### Source
-`src/lib/reports/hospital.mock.tsx`, file-local (not exported) interface, produced by `buildDischargeAudit()` (26 rows), report id `discharge-clearance-audit` (code `R-10`).
-
-### Notes
-Not exported.
-
-## Table: hospitalReports (file-level export, not a row type)
-
-**Description:** The file's true top-level export — an array of all 10 `ReportConfig<T>` objects (R-01..R-10), each wrapping one of the row types documented above plus its columns/filters/drawer UI config.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| (array of) `ReportConfig<CensusRow \| LogbookRow \| MorbidityRow \| ClaimRow \| DenialRow \| RevenueRow \| PhysicianActivityRow \| LabWorkloadRow \| FormularyRow \| DischargeAuditRow>` | — | 10-element array, one per report code R-01..R-10. |
-
-### Relationships
-- Aggregates all 10 row-type tables in this Part.
-
-### Source
-`src/lib/reports/hospital.mock.tsx`, exported as `hospitalReports: AnyReportConfig[]`; individual reports retrievable via `getHospitalReport(id)`.
-
-### Notes
-`AnyReportConfig = ReportConfig<any>` is a type-erasure alias (explicit `eslint-disable` comment in source acknowledging the `any`) so the 10 differently-typed reports can share one array — a trivial generic alias, not tabled on its own. `ReportConfig<T>` itself (columns, filters, drawer, `getRows`, `getDrawer`, etc.) is defined in `src/components/reports/types.ts`, which is UI-engine infrastructure, not a mock-data file, so it is out of scope for full field-by-field documentation here.
-
----
-
-# Part 5 — LGU ("Type B") Dashboard Mock Data
-
-## File: `src/lib/analytics/lgu/executive.mock.ts`
-
-Mock data for the LGU / City Health Center Executive (CHO) Dashboard. Imports `BARANGAYS, BHC_LIST, months12, epiWeeks, seeded, seededRange, TOTAL_POPULATION` from `./shared.mock` and `KONSULTA_EKAS_RATE` from `../ph-constants`.
-
-## Table: BarangayMetricSet
-
-**Description:** One barangay's full metric bundle for the Executive dashboard's choropleth map and barangay drill-down. The richest per-barangay row in the codebase.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | FK -> Barangay.id | Barangay id. |
-| name | string | — | Barangay name. |
-| population | number | — | Barangay population. |
-| bhc | string | FK -> BHC_FACILITIES.name (informal) | Serving BHC name. |
-| phn | string | — | Assigned Public Health Nurse. |
-| visitDensity | number | — | Konsulta visit density per 1,000 population. |
-| immunizationCoverage | number | — | Immunization coverage rate %. |
-| tbCases | number | — | TB case count. |
-| hypertensionPrevalence | number | — | Hypertension prevalence %. |
-| maternalCoverage | number | — | Maternal care coverage %. |
-| dengueCases | number | — | Dengue case count. |
-| registeredPatients | number | — | Registered patient count (55–82% of population). |
-| visitsByType | inline `{type: string; count: number}[]` | — | 5-item breakdown by visit type (`Konsulta OPD, Immunization, ANC, TB-DOTS, NCD follow-up`). |
-| topDiagnoses | inline `{code: string; description: string; count: number}[]` | — | 5-item top-diagnosis list, hardcoded per barangay (independent of `PH_TOP_DIAGNOSES`; includes `A90` dengue, which is not in `PH_TOP_DIAGNOSES`). |
-| immunizationByAntigen | inline `{antigen: string; coverage: number}[]` | — | 7-antigen coverage breakdown. |
-| maternalRiskCount | inline `{risk: string; count: number}[]` | — | 3-tier maternal risk-stratification counts. |
-| tbOnTreatment | number | — | TB patients currently on treatment. |
-| activeReferrals | number | — | Active referral count. |
-
-### Relationships
-- Built directly from `BARANGAYS.map(...)` — one row per `Barangay`, carrying `id`, `name`, `population`, `bhc`, `phn` straight through.
-- `CHOROPLETH_METRICS` (a 6-item `const` array of `{key, label, unit}`, `as const`) enumerates which `BarangayMetricSet` numeric fields are choropleth-selectable; `ChoroplethMetricKey` is the derived trivial type alias (`(typeof CHOROPLETH_METRICS)[number]["key"]`) — neither is tabled separately (no backing named interface for `CHOROPLETH_METRICS` entries).
-
-### Source
-`src/lib/analytics/lgu/executive.mock.ts`, produced by `buildBarangayData()`, embedded in `LguExecutiveData.barangays`.
-
-### Notes
-None.
-
-## Table: DiseaseCurvePoint
-
-**Description:** One epidemiological week's case counts for 4 tracked diseases, each with a baseline for outbreak-threshold comparison.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| period | string | — | Epi-week label, e.g. `"EW20"`. |
-| dengue | number | — | Dengue case count (spikes 2.1–3.4× baseline from week 8 onward, modeling an outbreak). |
-| measles | number | — | Measles case count. |
-| diarrhea | number | — | Diarrhea case count. |
-| ari | number | — | Acute Respiratory Infection case count. |
-| dengueBaseline | number | — | Dengue baseline for the week. |
-| measlesBaseline | number | — | Flat measles baseline (`4`). |
-| diarrheaBaseline | number | — | Flat diarrhea baseline (`14`). |
-| ariBaseline | number | — | Flat ARI baseline (`32`). |
-
-### Relationships
-- `scaleEpiCurve(ratio)` in `jurisdiction.mock.ts` maps over this exact shape to rescale it for other jurisdictions — informal (untyped-by-name, but structurally identical) reuse.
-
-### Source
-`src/lib/analytics/lgu/executive.mock.ts`, produced by `buildEpiCurve()`, embedded in `LguExecutiveData.epiCurve`.
-
-### Notes
-None.
-
-## Table: MorbidityRow (LGU executive)
-
-**Description:** One ICD-10 morbidity row with current/prior-month/prior-year counts, for the Executive dashboard's morbidity table (all-ages and under-5 variants). **Same name as, but a different shape from,** the file-local `MorbidityRow` in `reports/hospital.mock.tsx` — see Known Cross-File Inconsistencies #3.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| code | string | — | ICD-10 code. |
-| description | string | — | Diagnosis description. |
-| current | number | — | Current-period case count. |
-| priorMonth | number | — | Prior-month case count. |
-| priorYear | number | — | Prior-year (same month) case count. |
-
-### Relationships
-- `jurisdictionMorbidity(population)` in `jurisdiction.mock.ts` returns an array of this same shape (structurally, via `PH_TOP_DIAGNOSES` instead of the hardcoded `morbidityAllAges`/`morbidityUnder5` lists here) — informal reuse, not a shared named type import.
-
-### Source
-`src/lib/analytics/lgu/executive.mock.ts`, hardcoded as `morbidityAllAges: MorbidityRow[]` (10 rows) and `morbidityUnder5: MorbidityRow[]` (10 rows), embedded in `LguExecutiveData.morbidity.{allAges,under5}`.
-
-### Notes
-This is an **exported** interface, unlike the file-local `MorbidityRow` in `reports/hospital.mock.tsx` it collides in name with.
-
-## Table: LguExecutiveData (top-level wrapper)
-
-**Description:** Top-level payload returned by `getLguExecutiveData()`/`fetchLguExecutiveData()` for the LGU Executive (CHO) Dashboard — the most complex single object in the whole mock-data set.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| tenant | string | — | `"Cebu City Health Office"`. |
-| jurisdiction | string | — | `"City Health Center → 15 Barangay Health Centers"`. |
-| period | string | — | Current period label. |
-| priorPeriod | string | — | Prior period label. |
-| role | string | — | Viewer role label. |
-| totalPopulation | number | — | `TOTAL_POPULATION`, sum of all `BARANGAYS[].population`. |
-| konsultaVisits | inline `{total, deltaMonth, deltaYear, byWeekday: {day,visits}[], byBhc: {name,value}[]}` | — | Konsulta OPD visit KPI + breakdowns. |
-| ekas | inline `{submitted, value, delta, byStatus: {status,count,color}[], byBhc: {name,value}[], daysToCutoff, unsettledCount}` | — | eKAS (Konsulta claim) KPI + breakdowns. |
-| tbDots | inline `{activeCases, delta, byBarangay: {name,value}[], byPhase: {phase,count}[], treatmentSuccessRate}` | — | TB-DOTS program KPI + breakdowns. |
-| immunization | inline `{coverage, delta, byAntigen: {antigen,coverage}[], byAgeGroup: {group,coverage}[]}` | — | Immunization coverage KPI + breakdowns. |
-| maternalCoverage | inline `{value, delta, byTrimester: {trimester,count}[], byRisk: {risk,count}[]}` | — | Maternal coverage KPI + breakdowns. |
-| htnControl | inline `{value, delta}` | — | Hypertension control KPI. |
-| dmControl | inline `{value, delta}` | — | Diabetes control KPI. |
-| referralCompletion | inline `{value, delta, byDestination: {name,value}[], byOutcome: {outcome,count,color}[]}` | — | Referral completion KPI + breakdowns. |
-| barangays | BarangayMetricSet[] | — | See **BarangayMetricSet**. |
-| epiCurve | DiseaseCurvePoint[] | — | See **DiseaseCurvePoint**. |
-| morbidity | inline `{allAges: MorbidityRow[]; under5: MorbidityRow[]}` | — | See **MorbidityRow (LGU executive)**. |
-| outbreaks | inline `{name: string; ratio: number; weeks: number}[]` | — | Outbreak-alert list (1 entry: Dengue, 2.6× baseline, 3 weeks). |
-
-### Relationships
-- Aggregates `BarangayMetricSet`, `DiseaseCurvePoint`, `MorbidityRow (LGU executive)`.
-- `ekas.value = 14620 * KONSULTA_EKAS_RATE` — informal computed relationship to the `ph-constants.ts` flat rate.
-
-### Source
-`src/lib/analytics/lgu/executive.mock.ts`, produced by `getLguExecutiveData()` / `fetchLguExecutiveData()`. Also re-exports `months12` from `shared.mock.ts`.
-
-### Notes
-Nearly every nested KPI sub-object uses the same anonymous `{value, delta, ...}` pattern seen in `ExecutiveData` (hospital) — not backed by any shared named type across the two files.
-
----
-
-## File: `src/lib/analytics/lgu/jurisdiction.mock.ts`
-
-Jurisdiction roll-ups for the LGU Executive dashboard's geo-role switcher (Barangay Captain → Mayor/CHO → Governor → President). Only Cebu City (15 barangays) is modeled in full detail (via `getLguExecutiveData()`); Cebu Province's 9 other cities/municipalities and the Philippines' 17 regions are explicitly **not independently modeled** — they are deterministically scaled from Cebu City's real per-capita numbers by population ratio. Imports `seededRange` from `./shared.mock`, `getLguExecutiveData` from `./executive.mock`, and `PH_TOP_DIAGNOSES` from `../ph-constants`.
-
-## Table: JurisdictionRow
-
-**Description:** One jurisdiction's (city/province/region/country) rolled-up choropleth + KPI-strip metrics — the same metric set at every geo tier, so the Executive dashboard can render "same layout, different jurisdiction."
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | PK | Jurisdiction slug, e.g. `"city-cebu"`, `"province-cebu"`, `"region-7"`, `"national-ph"`. |
-| name | string | — | Display name. |
-| population | number | — | Population (real for Cebu City; a `popRatio`-derived estimate for everything else). |
-| visitDensity | number | — | Konsulta visit density per 1,000 population. |
-| immunizationCoverage | number | — | Immunization coverage %. |
-| tbCases | number | — | TB case count. |
-| hypertensionPrevalence | number | — | Hypertension prevalence %. |
-| maternalCoverage | number | — | Maternal coverage %. |
-| dengueCases | number | — | Dengue case count. |
-| konsultaVisits | number | — | Konsulta visit count. |
-| ekasSubmitted | number | — | eKAS claims submitted count. |
-| ekasValue | number | — | eKAS PHP value (`ekasSubmitted * 1500`, i.e. hardcoded `1500`, not imported `KONSULTA_EKAS_RATE` — a duplicated literal of the same constant). |
-| tbActiveCases | number | — | Active TB case count. |
-| tbTreatmentSuccessRate | number | — | TB treatment success rate %. |
-| htnControl | number | — | Hypertension control %. |
-| dmControl | number | — | Diabetes control %. |
-| referralCompletion | number | — | Referral completion %. |
-
-### Relationships
-- `CEBU_PROVINCE_CITIES: JurisdictionRow[]` (10 rows: Cebu City + 9 scaled sibling cities/municipalities) rolls up into `CEBU_PROVINCE_TOTAL: JurisdictionRow` via a population-weighted `rollUp()` helper.
-- `PH_REGIONS: JurisdictionRow[]` (17 rows: Region VII built from `CEBU_PROVINCE_TOTAL` + a synthetic Bohol/Negros Oriental/Siquijor top-up roll-up; the other 16 regions scaled from Cebu City's per-capita rates against illustrative population ratios) rolls up into `PHILIPPINES_TOTAL: JurisdictionRow`.
-- All scaled rows are produced by `scaleFromCebu(id, name, population, salt)`, which applies a `±15%` seeded jitter to Cebu City's per-capita `BASE` rates — informal, computed, not independently modeled data.
-
-### Source
-`src/lib/analytics/lgu/jurisdiction.mock.ts`, exported as `CEBU_PROVINCE_CITIES`, `CEBU_PROVINCE_TOTAL`, `PH_REGIONS`, `PHILIPPINES_TOTAL` (all `JurisdictionRow` or `JurisdictionRow[]`).
-
-### Notes
-This file also exports two helper functions that return arrays shaped like other files' types without importing them: `scaleEpiCurve(ratio)` returns `DiseaseCurvePoint`-shaped objects (no import, structural match only), and `jurisdictionMorbidity(population)` returns `MorbidityRow (LGU executive)`-shaped objects built from `PH_TOP_DIAGNOSES` rather than the hardcoded `morbidityAllAges` list. Neither return type is a named type alias in this file — both are inferred function return types.
-
----
-
-## File: `src/lib/analytics/lgu/maternal.mock.ts`
-
-Mock data for the Maternal & Child Health Dashboard. Imports `BARANGAYS, months12, seeded, seededRange, personName, patientId` from `./shared.mock`.
-
-## Table: AncFunnelStage
-
-**Description:** One stage of the Antenatal Care (ANC) funnel (Registered → 1st visit → 4+ visits → Delivered → Postpartum check). `{id, label, value}`-shaped duplicate of `FlowStage` — see Known Cross-File Inconsistencies #2.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | PK | Stage slug, e.g. `"registered"`. |
-| label | string | — | Stage display label. |
-| value | number | — | Stage count. |
-
-### Relationships
-- The base 5-stage `ancStages` array is scaled per-barangay (via a seeded 3–9% share plus a small per-stage decay) to populate `funnelByBarangay: Record<string, AncFunnelStage[]>`, keyed by `Barangay.name`.
-
-### Source
-`src/lib/analytics/lgu/maternal.mock.ts`, hardcoded 5-row `ancStages` array, embedded in `MaternalData.ancFunnel` and (scaled) `MaternalData.funnelByBarangay`.
-
-### Notes
-None.
-
-## Table: RiskPatient
-
-**Description:** One high-risk (or routine) pregnancy case row, for the maternal risk-stratification table.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | PK | Case id, e.g. `"MAT-1000"`. |
-| name | string | — | Patient name, from `personName()` (the `shared.mock.ts` generator, not gender-aware). |
-| barangay | string | FK -> Barangay.name (informal) | Barangay name. |
-| risk | `"Low Risk" \| "High Risk" \| "Very High Risk"` | — | Risk tier. |
-| gestWeeks | number | — | Gestational age in weeks, 8–38. |
-| contact | string | — | Synthetic mobile number, format `09XXXXXXXXX`. |
-| flags | string[] | — | Free-text risk flags, e.g. `["Pre-eclampsia risk", "HIV screening pending"]`. |
-
-### Relationships
-None beyond the informal barangay FK.
-
-### Source
-`src/lib/analytics/lgu/maternal.mock.ts`, produced by `buildRiskPatients()` (18 rows), embedded in `MaternalData.riskPatients`.
-
-### Notes
-None.
-
-## Table: MaternalData (top-level wrapper)
-
-**Description:** Top-level payload returned by `getMaternalData()`/`fetchMaternalData()` for the Maternal & Child Health Dashboard.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| tenant | string | — | `"Cebu City Health Office"`. |
-| period | string | — | Current period label. |
-| ancFunnel | AncFunnelStage[] | — | See **AncFunnelStage**. |
-| funnelByBarangay | Record<string, AncFunnelStage[]> | — | Per-barangay scaled version of `ancFunnel`, keyed by barangay name. |
-| ancCoverageByBarangay | inline `{name: string; coverage: number}[]` | — | ANC coverage % per barangay, sorted ascending. |
-| riskStrat | inline `{risk: string; count: number; color: string}[]` | — | City-wide risk-tier counts (3 rows). |
-| riskPatients | RiskPatient[] | — | See **RiskPatient**. |
-| gestAgeHistogram | inline `{bucket: string; count: number; band: "early"\|"mid"\|"late"}[]` | — | 10-bucket gestational-age histogram. |
-| deliveryOutcome | inline `{month, facility, hospital, home}[]` | — | 12-month delivery-location trend. |
-| complications | inline `{month, pph, preeclampsia, obstructedLabor, sepsis, ucl}[]` | — | 12-month complication-rate trend with a flat `ucl` (upper control limit) of `20`. |
-| newbornScreening | inline `{label: string; completion: number; incomplete: {name,barangay}[]}[]` | — | 4-item newborn-screening completion summary with incomplete-case drill-down. |
-| immunizationRadar | inline `{label: string; value: number}[]` | — | 9-antigen coverage radar data. |
-| immunizationByBarangay | inline `{name: string; coverage: number}[]` | — | Immunization coverage % per barangay. |
-| nutrition | inline `{ageGroup, stunted, wasted, underweight}[]` | — | 4-age-group malnutrition-indicator table. |
-| growthMonitoring | inline `{month: string; coverage: number}[]` | — | 12-month growth-monitoring coverage trend. |
-| growthByBarangay | inline `{name: string; trend: number[]}[]` | — | Per-barangay 6-point growth-coverage trend. |
-
-### Relationships
-- Aggregates `AncFunnelStage`, `RiskPatient`.
-- Nearly all other keys are anonymous inline shapes, not separately named types.
-
-### Source
-`src/lib/analytics/lgu/maternal.mock.ts`, produced by `getMaternalData()` / `fetchMaternalData()`.
-
-### Notes
-None.
-
----
-
-## File: `src/lib/analytics/lgu/ncd.mock.ts`
-
-Mock data for the NCD (Non-Communicable Disease) Management Dashboard. Imports `BARANGAYS, months12, seededRange, personName` from `./shared.mock` and `ComplianceCell` (type-only) from `@/components/analytics/lgu-shared`.
-
-## Table: NcdBarangay
-
-**Description:** One barangay's NCD (hypertension/diabetes/obesity) prevalence and program-enrollment summary.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | FK -> Barangay.id | Barangay id. |
-| name | string | — | Barangay name. |
-| htnPrevalence | number | — | Hypertension prevalence %. |
-| dmPrevalence | number | — | Diabetes prevalence %. |
-| obesityPrevalence | number | — | Obesity prevalence %. |
-| ncdIndex | number | — | Composite index, `htn*0.45 + dm*0.35 + obesity*0.2`. |
-| patientCount | number | — | NCD patient count. |
-| controlRate | number | — | Percentage of patients with controlled NCD. |
-| referralCount | number | — | Referral count. |
-| medicationCompliance | number | — | Medication compliance %. |
-
-### Relationships
-None beyond the direct 1:1 build from `BARANGAYS`.
-
-### Source
-`src/lib/analytics/lgu/ncd.mock.ts`, produced by `buildBarangays()`, embedded in `NcdData.barangays`.
-
-### Notes
-None.
-
-## Table: CascadeStage (NCD)
-
-**Description:** One stage of the HTN or DM care cascade (Estimated → Screened → Diagnosed → Enrolled → Medicated → Controlled). `{id, label, value}`-shaped duplicate of `FlowStage`, and same name/shape as `CascadeStage` in `tb.mock.ts` — see Known Cross-File Inconsistencies #2 and #3.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | PK | Stage slug, e.g. `"estimated"`, `"controlled"`. |
-| label | string | — | Stage display label. |
-| value | number | — | Stage count (city-wide, not per-barangay). |
-
-### Relationships
-None identified beyond the cross-file shape duplication noted above.
-
-### Source
-`src/lib/analytics/lgu/ncd.mock.ts`, hardcoded 6-row arrays `htnCascade` and `dmCascade`, embedded in `NcdData.htnCascade` / `NcdData.dmCascade`.
-
-### Notes
-None.
-
-## Table: NcdData (top-level wrapper)
-
-**Description:** Top-level payload returned by `getNcdData()`/`fetchNcdData()` for the NCD Management Dashboard.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| tenant | string | — | `"Cebu City Health Office"`. |
-| period | string | — | Current period label. |
-| barangays | NcdBarangay[] | — | See **NcdBarangay**. |
-| htnCascade | CascadeStage (NCD)[] | — | See **CascadeStage (NCD)**. |
-| dmCascade | CascadeStage (NCD)[] | — | See **CascadeStage (NCD)**. |
-| complianceRows | string[] | — | 10 patient names (row labels for the compliance heatmap), from `personName()`. |
-| complianceColumns | string[] | — | 12 month labels (short form, e.g. `"Sep"`), derived from `months12`. |
-| complianceMatrix | ComplianceCell[][] | — | 10×12 grid of medication-refill compliance cells; see **ComplianceCell** (Part 2, noted as trivial alias — `"ok" \| "missed" \| "na"`). |
-| riskFactors | inline `{metric, barangay, city, national}[]` | — | 5-row risk-factor comparison table (smoking, alcohol, inactivity, obesity, hypercholesterolemia) at 3 geo levels. |
-
-### Relationships
-- Aggregates `NcdBarangay`, `CascadeStage (NCD)`.
-- `complianceMatrix: ComplianceCell[][]` imports its cell type from `lgu-shared.tsx` rather than redeclaring it — consistent with `ComplianceCell`/`ComplianceHeatmap` being a genuinely shared primitive (unlike `FlowStage`).
-
-### Source
-`src/lib/analytics/lgu/ncd.mock.ts`, produced by `getNcdData()` / `fetchNcdData()`.
-
-### Notes
-None.
-
----
-
-## File: `src/lib/analytics/lgu/tb.mock.ts`
-
-Mock data for the TB-DOTS Program Dashboard. Imports `BARANGAYS, seededRange, patientId` from `./shared.mock`. Uses a 24-month window (`months24`, Sep 2024–Aug 2026) rather than the usual 12-month `months12`.
-
-## Table: TbTrendPoint
-
-**Description:** One month of TB case-notification trend data (bacteriologically-confirmed vs. clinically-diagnosed), with a computed incidence rate.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| month | string | — | Month label (24-month range). |
-| bacConfirmed | number | — | Bacteriologically-confirmed case count. |
-| clinicallyDiagnosed | number | — | Clinically-diagnosed case count. |
-| rate | number | — | Incidence rate per 100,000, computed as `(bacConfirmed + clinicallyDiagnosed) / 480_000 * 100_000`. |
-
-### Relationships
-None identified. `480_000` is a hardcoded population denominator, not sourced from `TOTAL_POPULATION`.
-
-### Source
-`src/lib/analytics/lgu/tb.mock.ts`, produced by `buildTrend()` (24 rows), embedded in `TbData.trend`.
-
-### Notes
-None.
-
-## Table: CascadeStage (TB)
-
-**Description:** One stage of the TB care cascade (Estimated burden → Suspects → Tested → Diagnosed → Initiated → Completed → Success). `{id, label, value}`-shaped duplicate of `FlowStage`, and same name/shape as `CascadeStage` in `ncd.mock.ts` — see Known Cross-File Inconsistencies #2 and #3.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | PK | Stage slug, e.g. `"estimated"`, `"success"`. |
-| label | string | — | Stage display label. |
-| value | number | — | Stage count. |
-
-### Relationships
-None identified beyond the cross-file shape duplication noted above.
-
-### Source
-`src/lib/analytics/lgu/tb.mock.ts`, hardcoded 7-row array, embedded in `TbData.cascade`.
-
-### Notes
-The last two stages (`"initiated"` and `"success"`/`"completed"`) reuse the value `704` for both `completed` and `success` rows — i.e. "Treatment success rate" is modeled as an absolute count equal to "Treatment completed," not as a separately-tracked percentage in this array (the percentage form, `whoTargetSuccess`, is a separate top-level field).
-
-## Table: DrTbCase
-
-**Description:** One Drug-Resistant TB (MDR/XDR/Pre-XDR) case, for the DR-TB case-management table.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | PK | Patient id, from `patientId()`. |
-| barangay | string | FK -> Barangay.name (informal) | Barangay name. |
-| type | `"MDR" \| "XDR" \| "Pre-XDR"` | — | Drug-resistance classification. |
-| startDate | string | — | Treatment start date, `"2026-MM-DD"`. |
-| phase | `"Intensive" \| "Continuation"` (as plain string) | — | Treatment phase. |
-| nextReview | string | — | Next review date, `"2026-MM-DD"`. |
-| status | `"On track" \| "Delayed" \| "Interrupted"` | — | Treatment status. |
-
-### Relationships
-None beyond the informal barangay FK.
-
-### Source
-`src/lib/analytics/lgu/tb.mock.ts`, computed inline (12 rows), embedded in `TbData.drTbCases`.
-
-### Notes
-None.
-
-## Table: TbData (top-level wrapper)
-
-**Description:** Top-level payload returned by `getTbData()`/`fetchTbData()` for the TB-DOTS Program Dashboard.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| tenant | string | — | `"Cebu City Health Office"`. |
-| period | string | — | Current period label. |
-| trend | TbTrendPoint[] | — | See **TbTrendPoint**. |
-| nationalTarget | number | — | National TB incidence-rate target (flat `34`). |
-| cascade | CascadeStage (TB)[] | — | See **CascadeStage (TB)**. |
-| whoTargetSuccess | number | — | WHO target treatment success rate % (flat `90`). |
-| outcomes | inline `{outcome: string; count: number; color: string}[]` | — | 6-row treatment-outcome breakdown (Cured, Treatment Completed, Failed, Lost to Follow-up, Died, Not Evaluated). |
-| cohortTrend | inline `{month: string; successRate: number}[]` | — | 12-month treatment-success-rate trend, drawn from the back half of `months24`. |
-| drTbCases | DrTbCase[] | — | See **DrTbCase**. |
-| drTbByBarangay | inline `{id: string; name: string; count: number}[]` | — | Per-barangay DR-TB case counts. |
-
-### Relationships
-- Aggregates `TbTrendPoint`, `CascadeStage (TB)`, `DrTbCase`.
-
-### Source
-`src/lib/analytics/lgu/tb.mock.ts`, produced by `getTbData()` / `fetchTbData()`.
-
-### Notes
-None.
-
----
-
-## File: `src/lib/analytics/lgu/konsulta.mock.ts`
-
-Mock data for the Konsulta / PhilHealth OPD Analytics Dashboard. Imports `BHC_LIST, seededRange` from `./shared.mock` and `CalendarDay` (type-only) from `@/components/analytics/lgu-shared`.
-
-## Table: BhcVolume
-
-**Description:** One BHC's Konsulta visit volume, current vs. prior periods.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| bhc | string | FK -> BHC_LIST (informal) | BHC name. |
-| current | number | — | Current-period visit count. |
-| priorMonth | number | — | Prior-month visit count. |
-| priorYear | number | — | Prior-year visit count. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/lgu/konsulta.mock.ts`, computed inline (sorted desc by `current`), embedded in `KonsultaData.volumeByBhc`.
-
-### Notes
-None.
-
-## Table: DenialReason (Konsulta)
-
-**Description:** One eKAS (Konsulta claim) denial reason. Same name as, but a narrower shape than (missing `valueAtRisk`), `DenialReason` in `executive.mock.ts` (hospital) — see Known Cross-File Inconsistencies #3.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| code | string | PK | Denial code, e.g. `"KD-101"` (distinct `KD-` prefix, not shared with hospital's `DR-` codes). |
-| reason | string | — | Denial reason label. |
-| count | number | — | Denial count. |
-| action | string | — | Recommended remediation action. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/lgu/konsulta.mock.ts`, hardcoded 5-row array, embedded in `KonsultaData.denialReasons`.
-
-### Notes
-None.
-
-## Table: FlowStageLike
-
-**Description:** One stage of the Konsulta member-enrollment funnel. `{id, label, value}`-shaped duplicate of `FlowStage`, with a name that explicitly acknowledges the duplication — see Known Cross-File Inconsistencies #2.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| id | string | PK | Stage slug, e.g. `"estimated"`, `"referred"`. |
-| label | string | — | Stage display label. |
-| value | number | — | Stage count. |
-
-### Relationships
-None identified beyond the cross-file shape duplication noted above.
-
-### Source
-`src/lib/analytics/lgu/konsulta.mock.ts`, hardcoded 5-row array, embedded in `KonsultaData.enrollmentFunnel`.
-
-### Notes
-None.
-
-## Table: KonsultaData (top-level wrapper)
-
-**Description:** Top-level payload returned by `getKonsultaData()`/`fetchKonsultaData()` for the Konsulta / PhilHealth OPD Analytics Dashboard.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| tenant | string | — | `"Cebu City Health Office"`. |
-| period | string | — | Current period label. |
-| cutoffDay | number | — | Day-of-month PhilHealth submission cutoff (`25`). |
-| volumeByBhc | BhcVolume[] | — | See **BhcVolume**. |
-| calendarDays | CalendarDay[] | — | See **CalendarDay** (Part 2). |
-| denialReasons | DenialReason (Konsulta)[] | — | See **DenialReason (Konsulta)**. |
-| enrollmentFunnel | FlowStageLike[] | — | See **FlowStageLike**. |
-| revenueByBhc | inline `{bhc, ekasValue, oopValue, visits, ekasSubmitted}[]` | — | Per-BHC revenue breakdown (eKAS value, out-of-pocket value, visit and submission counts). |
-
-### Relationships
-- Aggregates `BhcVolume`, `CalendarDay`, `DenialReason (Konsulta)`, `FlowStageLike`.
-
-### Source
-`src/lib/analytics/lgu/konsulta.mock.ts`, produced by `getKonsultaData()` / `fetchKonsultaData()`.
-
-### Notes
-`buildCalendar()` mocks "today" as August 7, 2026 (`isPast = date <= 7`) — consistent with the `currentDate` context of this documentation task's environment, though that is almost certainly a coincidence of the mock data's fixed design date, not a dynamic reference.
-
----
-
-## File: `src/lib/analytics/lgu/population.mock.ts`
-
-Mock data for the Population Health & Epidemiology Dashboard. Imports only `epiWeeks, seededRange` from `./shared.mock` — **does not import `BARANGAYS` or `BHC_LIST`** (see Known Cross-File Inconsistencies #5). Also redeclares its own local `months12` array instead of importing `shared.mock.ts`'s.
-
-## Table: PyramidBand
-
-**Description:** One age-band row of a population pyramid (male/female counts).
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| band | string | — | Age band label, e.g. `"0-4"`, `"70+"` (15 bands). |
-| male | number | — | Male count in this band. |
-| female | number | — | Female count in this band. |
-
-### Relationships
-None identified. Three separate `PyramidBand[]` series are built from the same `ageBands` list at different population scales (see **PopulationData** below).
-
-### Source
-`src/lib/analytics/lgu/population.mock.ts`, produced by `buildPyramid(scale, salt)`, embedded in `PopulationData.pyramidRegistered` / `.pyramidActive` / `.pyramidPhilhealth`.
-
-### Notes
-None.
-
-## Table: UtilizationSeries
-
-**Description:** One health service's monthly utilization-rate trend vs. a benchmark target.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| service | string | — | Service name, e.g. `"ANC"`, `"TB-DOTS"`, `"Mental health"` (9 services). |
-| benchmark | number | — | Target utilization rate %. |
-| trend | inline `{month: string; value: number}[]` | — | 12-month utilization trend. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/lgu/population.mock.ts`, produced by `buildUtilization()`, embedded in `PopulationData.utilization`.
-
-### Notes
-None.
-
-## Table: SdohMetric
-
-**Description:** One Social Determinants of Health (SDOH) indicator, for the SDOH summary panel.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| label | string | — | Indicator label, e.g. `"4Ps / Pantawid enrollment"`. |
-| value | number | — | Indicator value %. |
-| delta | number | — | Change vs. prior period. |
-| actionLabel | string | — | Label for the associated action button. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/analytics/lgu/population.mock.ts`, hardcoded 5-row array, embedded in `PopulationData.sdoh`.
-
-### Notes
-None.
-
-## Table: CommunicableDiseasePoint
-
-**Description:** One epidemiological week's case counts across 10 tracked communicable diseases, for the disease-surveillance chart.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| week | string | — | Epi-week label. |
-| dengue | number | — | Dengue case count (spikes from week 8 onward). |
-| ili | number | — | Influenza-Like Illness case count. |
-| typhoid | number | — | Typhoid case count. |
-| cholera | number | — | Cholera case count. |
-| measles | number | — | Measles case count. |
-| covid | number | — | COVID-19 case count. |
-| lepto | number | — | Leptospirosis case count. |
-| rabies | number | — | Rabies (animal-bite) case count. |
-| abd | number | — | Acute Bloody Diarrhea case count. |
-| hfmd | number | — | Hand-Foot-Mouth Disease case count. |
-
-### Relationships
-None identified. `outbreakThreshold: number` (flat `30`) sits alongside this array on `PopulationData` as the outbreak-detection cutoff, but is not a per-row field.
-
-### Source
-`src/lib/analytics/lgu/population.mock.ts`, computed inline over `epiWeeks`, embedded in `PopulationData.communicable`.
-
-### Notes
-None.
-
-## Table: PopulationData (top-level wrapper)
-
-**Description:** Top-level payload returned by `getPopulationData()`/`fetchPopulationData()` for the Population Health & Epidemiology Dashboard.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| tenant | string | — | `"Cebu City Health Office"`. |
-| period | string | — | Current period label. |
-| pyramidRegistered | PyramidBand[] | — | Full registered-population pyramid (scale 1.0). |
-| pyramidActive | PyramidBand[] | — | Active-patient pyramid (scale 0.62). |
-| pyramidPhilhealth | PyramidBand[] | — | PhilHealth-covered pyramid (scale 0.74). |
-| diseaseBurden | inline `{ageGroup, infection, ncd, maternal, injury, other}[]` | — | 5-age-group disease-burden-category breakdown. |
-| utilization | UtilizationSeries[] | — | See **UtilizationSeries**. |
-| sdoh | SdohMetric[] | — | See **SdohMetric**. |
-| communicable | CommunicableDiseasePoint[] | — | See **CommunicableDiseasePoint**. |
-| outbreakThreshold | number | — | Flat outbreak-detection threshold (`30`). |
-
-### Relationships
-- Aggregates `PyramidBand` (×3), `UtilizationSeries`, `SdohMetric`, `CommunicableDiseasePoint`.
-- **No relationship to `BARANGAYS`/`BHC_LIST`** — this file operates entirely at the city-wide level (see Known Cross-File Inconsistencies #5).
-
-### Source
-`src/lib/analytics/lgu/population.mock.ts`, produced by `getPopulationData()` / `fetchPopulationData()`.
-
-### Notes
-None.
-
----
-
-## File: `src/lib/analytics/lgu/cohort.mock.ts`
-
-Synthetic community-patient dataset for the LGU Cohort Builder (`/lgu/analytics/cohorts`), across the 15-barangay catchment. Imports `BARANGAYS, patientId, personName, seeded, seededRange` from `./shared.mock`.
-
-## Table: CommunityPatient
-
-**Description:** One synthetic community patient row for the LGU Cohort Builder query tool. Like the hospital `cohort.mock.ts`, there is no separate "Data" wrapper interface — the file's primary export is a flat `CommunityPatient[]` array.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| patientId | string | PK | Patient id, from `patientId(i + 500)`. |
-| name | string | — | Patient name, from `personName(i + 5)`. |
-| age | number | — | Patient age, 0–84. |
-| gender | `"male" \| "female"` | — | Patient gender. |
-| barangayId | string | FK -> Barangay.id | Barangay id. |
-| barangayName | string | — | Barangay name (denormalized alongside `barangayId`). |
-| diagnosisCode | string | — | ICD-10 code, from a local 8-entry `diagnoses` list distinct from `PH_TOP_DIAGNOSES` (includes `A90` dengue, `Z34.9` normal pregnancy supervision). |
-| diagnosisDesc | string | — | Diagnosis description. |
-| pregnant | boolean | — | True if female, age 15–45, and a seeded condition (`seeded(i,62) > 0.86`). |
-| fullyImmunized | boolean | — | Seeded boolean, threshold varies by age (<5 vs. ≥5). |
-| hypertensive | boolean | — | True if age ≥30 and a seeded condition. |
-| diabetic | boolean | — | True if age ≥30 and a seeded condition. |
-| tbCase | boolean | — | Seeded boolean (~8% of rows). |
-| dengueCase | boolean | — | True if `diagnosisCode === "A90"` or a seeded condition. |
-| lastVisitDate | string | — | ISO date within a ~7-month window of 2026. |
-
-### Relationships
-- `barangayId`/`barangayName` are a direct 1:1 pull from `BARANGAYS[i % BARANGAYS.length]` — informal FK (both id and denormalized name copied, not just an id reference).
-
-### Source
-`src/lib/analytics/lgu/cohort.mock.ts`, produced by `buildCommunityPatients(320)`, exported as `communityPatients: CommunityPatient[]`, wrapped by `fetchCommunityPatients()`.
-
-### Notes
-None.
-
----
-
-## File: `src/lib/analytics/lgu/temporal.mock.ts`
-
-Hour × weekday visit-volume mock data for the LGU Temporal Pattern Analysis tool (`/lgu/analytics/patterns`). Models BHC business-hours-only, closed-Sunday, half-day-Saturday patterns — a different shape from the hospital's 24/7 profile. Imports `HourWeekdayCell` (type-only) from `@/components/analytics/temporal-heatmap` and `BHC_LIST` from `./shared.mock`. Redeclares its own local `seeded`/`seededRange` helpers rather than importing them from `shared.mock.ts` (a minor, functionally-harmless duplication — both implementations are identical sine-based formulas).
-
-## Table: LguTemporalDataset (top-level wrapper)
-
-**Description:** Top-level payload returned by `getLguTemporalData()`/`fetchLguTemporalData()` for the LGU Temporal Pattern Analysis tool.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| konsulta | HourWeekdayCell[] | — | 168-cell Konsulta OPD visit-volume grid (business hours, half-day Saturday, closed Sunday). See **HourWeekdayCell** (Part 2). |
-| programs | HourWeekdayCell[] | — | 168-cell TB-DOTS/ANC program-visit grid (weekdays only, business hours). See **HourWeekdayCell** (Part 2). |
-
-### Relationships
-- Both fields are `HourWeekdayCell[]` imported from the shared component file, not redeclared locally — same sharing pattern as the hospital `temporal.mock.ts`.
-
-### Source
-`src/lib/analytics/lgu/temporal.mock.ts`, produced by `getLguTemporalData()` / `fetchLguTemporalData()`.
-
-### Notes
-This file also exports `TEMPORAL_BHCS = BHC_LIST` (re-export, not a type) and `bhcBreakdownFor(day, hour, total)`, a helper returning inline `{name: string; value: number}[]` (not a named type) for drill-down.
-
----
-
-## File: `src/lib/analytics/lgu/alerts.mock.ts`
-
-Static LGU alert data for the Alert & Notification Center tool. No local interfaces — imports `AlertItem` (type-only) from `@/components/analytics/alert-center` and exports two plain `AlertItem[]` constants. No "Data" wrapper interface exists for this file. **Does not import `BARANGAYS`/`BHC_LIST`/`shared.mock.ts` at all** (see Known Cross-File Inconsistencies #5).
-
-- `lguAlerts: AlertItem[]` — 9 initial alerts (3 critical, 3 warning, 3 info).
-- `lguAlertRefreshPool: AlertItem[]` — 3 alerts used as the "Refresh" button's pool.
-
-See **AlertItem** in Part 2 for the field-level table. Source: `src/lib/analytics/lgu/alerts.mock.ts`.
-
----
-
-# Part 6 — LGU Reports (`src/lib/reports/lgu.mock.tsx`)
-
-8 report configs (R-11..R-18), same `ReportConfig<T>` contract as the hospital reports module. Imports `BARANGAYS, BHC_LIST` from `@/lib/analytics/lgu/shared.mock` for cross-module consistency (this is the one reports file that *does* consistently reuse the shared geography data rather than redeclaring it). **All row-shape interfaces below are file-local (not exported)**, same pattern as `hospital.mock.tsx`.
-
-## Table: FhsisRow (R-11 Monthly FHSIS)
-
-**Description:** One section × indicator × month row of the DOH Field Health Service Information System (FHSIS) M1/M2-equivalent report.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| section | string | FK -> local `fhsisIndicators` sections (informal) | Section name, e.g. `"Family Planning"`, `"Maternal Care"`, `"Child Care"`, `"Nutrition"`, `"NCD"`, `"TB"`. |
-| indicator | string | — | Indicator label, e.g. `"ANC 1st visit"`, `"OPV3"` (28 indicators total). |
-| month | string | — | Month label (6-month window). |
-| isoDate | string | — | ISO first-of-month date. |
-| count | number | — | Achieved count for the indicator/month. |
-| target | number | — | Target count (flat per indicator, not scaled by month). |
-
-### Relationships
-None identified beyond the informal section FK. `coverage%` is derived at render time.
-
-### Source
-`src/lib/reports/lgu.mock.tsx`, file-local (not exported) interface, produced by `buildFhsis()` (28 indicators × 6 months = 168 rows), report id `fhsis-monthly` (code `R-11`).
-
-### Notes
-Not exported.
-
-## Table: ImmunizationCoverageRow (R-12 Immunization Coverage by Antigen × Barangay)
-
-**Description:** One barangay's EPI (Expanded Program on Immunization) coverage across 6 antigens.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| barangay | string | FK -> Barangay.name | Barangay name. |
-| targetPopulation | number | — | POPCOM-based estimated 0–11-month target cohort (`population * 0.018`). |
-| bcg | number | — | BCG coverage %. |
-| hepB | number | — | HepB coverage %. |
-| penta | number | — | Penta coverage %. |
-| opv | number | — | OPV coverage %. |
-| pcv | number | — | PCV coverage %. |
-| mmr | number | — | MMR coverage %. |
-
-### Relationships
-- One row per `BARANGAYS` entry — direct 1:1 build.
-
-### Source
-`src/lib/reports/lgu.mock.tsx`, file-local (not exported) interface, produced by `buildImmunizationCoverage()` (15 rows), report id `immunization-coverage-antigen-barangay` (code `R-12`).
-
-### Notes
-Not exported. Note: only 6 antigens here vs. the 7-antigen `antigens` list (`BCG, HepB, Penta, OPV, PCV, MMR, Rota`) used in `lgu/executive.mock.ts`'s `BarangayMetricSet.immunizationByAntigen` and `maternal.mock.ts`'s `immunizationRadar` — `Rota` is present in those two but omitted from this report's column set, a minor cross-file coverage-set inconsistency.
-
-## Table: MaternalDeathRow (R-13 Maternal Death Audit Report)
-
-**Description:** One maternal death case, for the restricted MHO/CHO-only quality-review report.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| date | string | — | ISO date of death. |
-| caseLabel | string | — | De-identified case label, e.g. `"Case #1"`. |
-| age | number | — | Patient age at death. |
-| gravidaPara | string | — | Obstetric history shorthand, e.g. `"G2P1"`. |
-| ancVisits | number | — | Number of ANC visits attended, 0–4. |
-| causeCode | string | — | ICD-10 cause-of-death code, e.g. `"O72.1"`. |
-| causeOfDeath | string | — | Cause-of-death description, e.g. `"Postpartum hemorrhage"`. |
-| placeOfDeath | string | — | `"Referral hospital"` or `"En route to facility"`. |
-| avoidable | `"Yes" \| "No" \| "Under review"` | — | Whether the death was assessed as avoidable. |
-| recommendations | string | — | Free-text review-committee recommendation. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/reports/lgu.mock.tsx`, file-local (not exported) interface, produced by `buildMaternalDeaths()` (5 rows), report id `maternal-death-audit` (code `R-13`), `roleNote: "MHO and CHO only — restricted"`.
-
-### Notes
-Not exported.
-
-## Table: TbQuarterlyRow (R-14 TB Program Quarterly Report)
-
-**Description:** One section × indicator × quarter row of the National TB Program (NTP Form 6-equivalent) quarterly submission.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| section | string | FK -> local `ntpIndicators` sections (informal) | Section, one of `"Case Notification"`, `"Treatment Enrollment"`, `"Treatment Outcomes"`. |
-| indicator | string | — | Indicator label, e.g. `"Bacteriologically confirmed, new"` (11 indicators total). |
-| quarter | string | — | Quarter label, e.g. `"Q3 2025"` (4-quarter window). |
-| isoDate | string | — | ISO first-of-quarter date. |
-| value | number | — | Count for the indicator/quarter. |
-
-### Relationships
-None identified.
-
-### Source
-`src/lib/reports/lgu.mock.tsx`, file-local (not exported) interface, produced by `buildTbQuarterly()` (11 indicators × 4 quarters = 44 rows), report id `tb-quarterly-ntp` (code `R-14`).
-
-### Notes
-Not exported.
-
-## Table: KonsultaUtilRow (R-15 Konsulta Enrollment & Utilization Report)
-
-**Description:** One BHC × month Konsulta Package (KP) enrollment/utilization performance row.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| bhc | string | FK -> BHC_LIST | BHC name. |
-| month | string | — | Month label (6-month window). |
-| isoDate | string | — | ISO first-of-month date. |
-| membershipType | string | FK -> local `membershipTypes` list (informal) | Membership type, assigned positionally per BHC (`Formal Economy, Informal Economy, Indigent (NHTS), Senior Citizen`). |
-| enrolledMembers | number | — | Enrolled member count. |
-| activeVisitors | number | — | Active-visitor count (month-to-date). |
-| ekasSubmitted | number | — | eKAS claims submitted. |
-| ekasValue | number | — | PHP eKAS value. |
-| approvalRate | number | — | Approval rate %. |
-| denialRate | number | — | Denial rate %, `100 - approvalRate`. |
-
-### Relationships
-- One row per `BHC_LIST` entry × 6 months — direct build.
-
-### Source
-`src/lib/reports/lgu.mock.tsx`, file-local (not exported) interface, produced by `buildKonsultaUtil()` (5 BHCs × 6 months = 30 rows), report id `konsulta-enrollment-utilization` (code `R-15`).
-
-### Notes
-Not exported. `utilizationRate` is derived at render time (`activeVisitors / enrolledMembers`).
-
-## Table: ReferralRow (R-16 Referral Network Analysis Report)
-
-**Description:** One referral from a BHC to a receiving hospital facility.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| bhc | string | FK -> BHC_LIST | Referring BHC name. |
-| date | string | — | ISO referral date. |
-| referralReason | string | FK -> local `referralReasons` list (informal) | Referral reason, e.g. `"Suspected TB"`, `"High-risk pregnancy"` (6-item list). |
-| receivingFacility | string | FK -> local `receivingFacilities` list (informal) | Receiving hospital, e.g. `"Cebu City Medical Center"` (4-item list). |
-| outcomeDocumented | boolean | — | Whether the referral outcome has been documented (~78% true). |
-| outcome | string | FK -> local `referralOutcomes` list (informal) | Outcome, one of `"Admitted", "OPD", "Returned"`, or `"Pending"` if not yet documented. |
-| feedbackReceived | boolean | — | Whether feedback was received from the receiving facility (only possibly true if `outcomeDocumented`). |
-
-### Relationships
-- `totalReferralsFor(bhc)` (a report-column helper, not a stored field) counts rows in a module-level cache (`referralRowsCache`) matching a given `bhc` — an informal, computed aggregate, not a join.
-
-### Source
-`src/lib/reports/lgu.mock.tsx`, file-local (not exported) interface, produced by `buildReferrals()` (60 rows, cached once as `referralRowsCache`), report id `referral-network-analysis` (code `R-16`).
-
-### Notes
-Not exported.
-
-## Table: HouseholdProfileRow (R-17 Community Household Health Profile)
-
-**Description:** One barangay's aggregate household health profile, for barangay-level CBHIS profiling.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| barangay | string | FK -> Barangay.name | Barangay name. |
-| households | number | — | Estimated household count (`population / 4.3`). |
-| members | number | — | Total members (= `Barangay.population`). |
-| philhealthCoverage | number | — | PhilHealth coverage %. |
-| fourPsPct | number | — | 4Ps (Pantawid Pamilyang Pilipino Program) enrollment %. |
-| withDm | number | — | Estimated count with diabetes. |
-| withHtn | number | — | Estimated count with hypertension. |
-| withTb | number | — | Estimated TB case count. |
-| pregnant | number | — | Estimated pregnant-women count. |
-| childrenUnder5 | number | — | Estimated children-under-5 count. |
-| elderly | number | — | Estimated elderly (60+) count. |
-
-### Relationships
-- One row per `BARANGAYS` entry — direct 1:1 build; several counts are `population * seededRange(...)` fractions.
-
-### Source
-`src/lib/reports/lgu.mock.tsx`, file-local (not exported) interface, produced by `buildHouseholdProfile()` (15 rows), report id `community-household-health-profile` (code `R-17`).
-
-### Notes
-Not exported.
-
-## Table: DengueRow (R-18 Dengue Surveillance Report — PIDSR format)
-
-**Description:** One dengue case, formatted for the Philippine Integrated Disease Surveillance & Response (PIDSR) Case Investigation Form (CIF) / CESU submission.
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| caseNo | string | PK | Case number, e.g. `"DGE-2026-600"`. |
-| dateOfOnset | string | — | ISO date of symptom onset. |
-| barangay | string | FK -> Barangay.name | Barangay name. |
-| age | number | — | Patient age, 2–70. |
-| sex | `"M" \| "F"` | — | Patient sex (same `"M"/"F"` vs. `"male"/"female"` inconsistency noted under `LogbookRow` in the hospital reports). |
-| dengueType | `"Dengue" \| "Dengue with Warning Signs" \| "Severe Dengue"` | — | WHO dengue classification. |
-| outcome | string | FK -> local `dengueOutcomes` list (informal) | Outcome; Severe Dengue cases are forced to `"Died"` or `"Referred"` via a seeded branch rather than drawn from the general `dengueOutcomes` pool. |
-| hospitalized | boolean | — | Whether the patient was hospitalized. |
-| dateNotifiedCesu | string | — | ISO date the case was notified to the Community Epidemiology and Surveillance Unit (CESU). |
-
-### Relationships
-- One row's `barangay` is drawn positionally from `BARANGAYS` — informal FK.
-- `automationNote` on this report states it "Auto-triggers an outbreak alert when weekly case count exceeds the epidemic threshold (see LGU Analytics → Executive)" — an informal, documented-but-not-code-enforced link to `lgu/executive.mock.ts`'s `outbreaks` field and `DiseaseCurvePoint`/`dengueBaseline` outbreak logic (the two are not actually wired together in code; both independently model a dengue outbreak narrative).
-
-### Source
-`src/lib/reports/lgu.mock.tsx`, file-local (not exported) interface, produced by `buildDengueCases()` (34 rows), report id `dengue-surveillance-pidsr` (code `R-18`).
-
-### Notes
-Not exported.
-
-## Table: lguReports (file-level export, not a row type)
-
-**Description:** The file's true top-level export — an array of all 8 `ReportConfig<T>` objects (R-11..R-18).
-
-| Attribute | Data Type | Key | Description |
-|---|---|---|---|
-| (array of) `ReportConfig<FhsisRow \| ImmunizationCoverageRow \| MaternalDeathRow \| TbQuarterlyRow \| KonsultaUtilRow \| ReferralRow \| HouseholdProfileRow \| DengueRow>` | — | 8-element array, one per report code R-11..R-18. |
-
-### Relationships
-- Aggregates all 8 row-type tables in this Part.
-
-### Source
-`src/lib/reports/lgu.mock.tsx`, exported as `lguReports: AnyReportConfig[]`; individual reports retrievable via `getLguReport(id)`.
-
-### Notes
-Same `AnyReportConfig = ReportConfig<any>` type-erasure pattern as the hospital reports file — see that Part's Notes.
+# Legacy Mock Data (Pending Migration)
+
+Everything below still exists in the repository and still powers most existing
+routes. It is **not** the current reference schema: each file generates its own
+synthetic numbers independently, so figures produced here do not necessarily
+reconcile with each other or with the shared dataset above. Migrate consumers
+to `src/lib/data/hospital/**` as pages are rebuilt.
+
+Field-level detail for these tables is unchanged from the prior version of this
+document; see git history for the full per-column listings. Listed here are the
+table names and one-line descriptions so nothing is lost.
+
+## Shared reference / constants (still current)
+
+- **`src/lib/analytics/ph-constants.ts`** — canonical PH constants: `IcdEntry` / `PH_TOP_DIAGNOSES` (12 ICD-10 codes), `PH_DIAGNOSIS_CASE_RATES`, `PH_DEPARTMENTS`, `PH_DEPARTMENT_COLORS`, `PH_PHYSICIANS`, `PH_SURNAMES`/`PH_FEMALE_NAMES`/`PH_MALE_NAMES`, `phPatientName()`, `PH_PAYER_MIX`, `PH_SCPWD_PATIENT_RATE`, `PH_MEMBERSHIP_DISTRIBUTION`, `KONSULTA_EKAS_RATE`, `INPATIENT_GROSS_CHARGE_RANGE`, `TARGET_ADMISSIONS_PER_MONTH`. **This file is not legacy** — the shared dataset imports from it and it remains the single source of reference data for both models.
+- **`src/lib/analytics/lgu/shared.mock.ts`** — `Barangay` plus the LGU-side `seeded`/`seededRange`/`epiWeeks`/`personName` helpers.
+
+## Hospital (Type A) analytics — pending migration
+
+| File | Tables | Status |
+|---|---|---|
+| `src/lib/analytics.mock.ts` | `KpiMetric`, `OccupancyPoint`, `DepartmentAdmissions`, `OrUtilizationPoint`, `DiagnosisTop`, `QualityEventPoint`, `VolumePoint`, `PatientAlert`, `DashboardData` | **Legacy and orphaned** — no route imports it. |
+| `src/lib/analytics/executive.mock.ts` | `AdmissionRow`, `VolumePoint`, `PayerSlice`, `PayerTrendPoint`, `DiagnosisRow`, `ClaimStatusSlice`, `DenialReason`, `LabTatCategory`, `ActionAlert`, `ExecutiveData` | Live — powers the Executive Analytics dashboard. Independent volume/payer/claims numbers; a prime migration candidate. |
+| `src/lib/analytics/clinical.mock.ts` | `IcdCode`, `HeatmapCell`, `HeatmapDrillCase`, `DiseaseTrendSeries`, `ComorbidityBubble`, `ProcedureNode`, `SurgeonRow`, `OrBlock`, `DischargeMonth`, `ReadmissionPoint`, `ReadmissionCase`, `HamaDept`, `SankeyLink`, `ReferralCase`, `SpecialtyAcceptance`, `ClinicalData` | Live — Clinical Analytics. Not yet migrated. |
+| `src/lib/analytics/revenue.mock.ts` | `WaterfallStep`, `PayerSlice`, `PayerTrendPoint`, `DeptRevenueRow`, `ARAgingRow`, `ARPatientRow`, `CollectionPoint`, `FunnelStage`, `CoverageSlice`, `ScPwdPoint`, `RevenueData` | Live — Revenue Analytics. Duplicates `PayerSlice`/`PayerTrendPoint` from `executive.mock.ts` with independent values. |
+| `src/lib/analytics/claims.mock.ts` | `ClaimsKpis`, `PipelineStage`, `DenialTrendPoint`, `DenialReasonRow`, `CaseTypeTreemapRow`, `PhysicianClaimRow`, `CaseRateScatterPoint`, `CoverageDiagnosisRow`, `WorklistClaim`, `ClaimsData` | Live — Claims Analytics. Does **not** import `ph-constants.ts`; keeps its own physician and diagnosis lists. |
+| `src/lib/analytics/quality.mock.ts` | `HacPoint`, `MedErrorPoint`, `HandHygieneUnit`, `SsiSurgeon`, `PrescriptionDept`, `QualityData` | Live — Quality Analytics. Does **not** import `ph-constants.ts`; local surgeon roster and `"Emergency"` vs. canonical `"Emergency Medicine"` naming mismatch. |
+| `src/lib/analytics/laboratory.mock.ts` | `VolumeTrendPoint`, `TatOutlier`, `TatBoxStat`, `CriticalResponseBar`, `CriticalNotification`, `AbnormalTestRow`, `UnmappedTest`, `LaboratoryData` | Live — Laboratory Analytics. Does **not** import `ph-constants.ts`; local department list uses `"OB-Gyne"`, `"Emergency"`, `"ICU"`. |
+| `src/lib/analytics/cohort.mock.ts` | `CohortPatient` | Live — hospital Cohort Builder. |
+| `src/lib/analytics/temporal.mock.ts` | `TemporalDataset` | Live — hospital Temporal Pattern Analysis. |
+| `src/lib/analytics/alerts.mock.ts` | (no own row types; emits `AlertItem` from `@/components/analytics/alert-center`) | Live — hospital Alert Center. |
+
+## Hospital reports — pending migration
+
+**`src/lib/reports/hospital.mock.tsx`** — 10 report row types plus the file-level `hospitalReports` export. All row interfaces are **file-local (not exported)** and only inferable from usage:
+
+`CensusRow` (R-01 Daily Census), `LogbookRow` (R-02 Admission & Discharge Logbook), `MorbidityRow` (R-03 Morbidity Summary), `ClaimRow` (R-04 PhilHealth Claims Register), `DenialRow` (R-05 Denial & Appeal Tracker), `RevenueRow` (R-06 Revenue & Collection), `PhysicianActivityRow` (R-07 Physician Activity), `LabWorkloadRow` (R-08 Laboratory Workload), `FormularyRow` (R-09 Prescription & Formulary Compliance), `DischargeAuditRow` (R-10 Discharge Clearance Audit).
+
+This file imports `phPatientName` from `ph-constants.ts` but never calls it, using its own gender-unaware local `personName(i)` instead. Every one of these ten reports is a direct candidate for re-derivation from the shared dataset (census from `Encounter`, logbook from `Encounter` + `Patient`, morbidity from `Encounter.diagnosisCode`, claims/denials from `PhilHealthClaim`, revenue from `Billing`, physician activity from `doctorProductivity()`).
+
+## LGU (Type B) analytics and reports — out of scope for migration
+
+The shared dataset is hospital-side (Type A) only. All LGU files remain the
+source of truth for their own dashboards and are unchanged:
+
+| File | Tables |
+|---|---|
+| `src/lib/analytics/lgu/executive.mock.ts` | `BarangayMetricSet`, `DiseaseCurvePoint`, `MorbidityRow`, `LguExecutiveData` |
+| `src/lib/analytics/lgu/jurisdiction.mock.ts` | `JurisdictionRow` |
+| `src/lib/analytics/lgu/maternal.mock.ts` | `AncFunnelStage`, `RiskPatient`, `MaternalData` |
+| `src/lib/analytics/lgu/ncd.mock.ts` | `NcdBarangay`, `CascadeStage`, `NcdData` |
+| `src/lib/analytics/lgu/tb.mock.ts` | `TbTrendPoint`, `CascadeStage`, `DrTbCase`, `TbData` |
+| `src/lib/analytics/lgu/konsulta.mock.ts` | `BhcVolume`, `DenialReason`, `FlowStageLike`, `KonsultaData` |
+| `src/lib/analytics/lgu/population.mock.ts` | `PyramidBand`, `UtilizationSeries`, `SdohMetric`, `CommunicableDiseasePoint`, `PopulationData` |
+| `src/lib/analytics/lgu/cohort.mock.ts` | `CommunityPatient` |
+| `src/lib/analytics/lgu/temporal.mock.ts` | `LguTemporalDataset` |
+| `src/lib/analytics/lgu/alerts.mock.ts` | (emits `AlertItem`) |
+| `src/lib/reports/lgu.mock.tsx` | `FhsisRow` (R-11), `ImmunizationCoverageRow` (R-12), `MaternalDeathRow` (R-13), `TbQuarterlyRow` (R-14), `KonsultaUtilRow` (R-15), `ReferralRow` (R-16), `HouseholdProfileRow` (R-17), `DengueRow` (R-18), plus the `lguReports` export |
+
+## Shared component prop types
+
+Declared alongside the visualization components rather than in a mock file, and
+consumed by both models:
+
+- `HourWeekdayCell` — `src/components/analytics/temporal-heatmap.tsx`
+- `AlertItem` — `src/components/analytics/alert-center.tsx`
+- `FlowStage`, `BarangayDatum`, `CalendarDay` — `src/components/analytics/lgu-shared.tsx`
+
+## `Top20NewCharts.tsx` data sourcing
+
+`src/components/analytics/Top20NewCharts.tsx` is a standalone, unwired preview
+component (no route, no nav entry, nothing imports it). It sources data from the
+**legacy** model only:
+
+- Charts 1, 2, 6 read pre-aggregated arrays off `getExecutiveData()` (`executive.mock.ts`).
+- Charts 3–5 and 7–11 read hospital report rows via `getHospitalReport(id).getRows()` (`reports/hospital.mock.tsx`).
+- Charts 13–14 and 16–20 read LGU report rows via `getLguReport(id).getRows()` (`reports/lgu.mock.tsx`).
+- It also imports `cohortPatients` (`cohort.mock.ts`), `getNcdData` (`lgu/ncd.mock.ts`) and `PH_DEPARTMENT_COLORS`.
+
+Because the report row interfaces in `src/lib/reports/*.mock.tsx` are file-local,
+this component declares local mirrors of them. All group-by/derivation logic
+lives inside the component rather than in the mock files. When these charts are
+promoted into real routes, the hospital-side ones should be re-pointed at
+`getHospitalDataset()` plus the `derive.ts` helpers instead.
+
+## Known cross-file inconsistencies in the legacy model
+
+Preserved from the prior version of this document because they are still true
+and are the motivation for the shared dataset:
+
+1. `claims.mock.ts`, `quality.mock.ts` and `laboratory.mock.ts` do not import `ph-constants.ts` at all; each declares its own near-duplicate physician roster and/or department list, with real naming drift (`"Dr. F. Aquino"` vs `"Dr. F. Aguilar"`, `"Emergency"` vs `"Emergency Medicine"`, `"OB-Gyne"` vs `"Obstetrics"`, plus an `"ICU"` that is not a `PH_DEPARTMENTS` value).
+2. The `{id, label, value}` funnel/cascade shape is independently redeclared in four LGU mock files instead of importing `FlowStage` from `lgu-shared.tsx`.
+3. Identically-named types are declared separately in more than one file: `PayerSlice` and `PayerTrendPoint` (same shape, `executive.mock.ts` and `revenue.mock.ts`), `VolumePoint` (**same name, different shape**, `analytics.mock.ts` and `executive.mock.ts`), `DenialReason` (**same name, different shape**, `executive.mock.ts` and `lgu/konsulta.mock.ts`), `CascadeStage` (`lgu/ncd.mock.ts` and `lgu/tb.mock.ts`), `MorbidityRow` (**same name, different shape**, `lgu/executive.mock.ts` exported and `reports/hospital.mock.tsx` file-local).
+4. `reports/hospital.mock.tsx` imports `phPatientName` but never calls it, using a behaviourally different local `personName(i)` instead.
+5. `lgu/population.mock.ts` and `lgu/alerts.mock.ts` never reference `BARANGAYS`/`BHC_LIST`; barangay names in `lgu/alerts.mock.ts` are hardcoded inside free-text strings and can silently drift.
 
 ---
 
 # Appendix — Table Count Summary
 
-| Group | Files | Tables documented (interfaces/types with named fields + wrapper types) |
+| Group | Files | Tables |
 |---|---|---|
+| **Shared hospital dataset (current)** | `src/lib/data/hospital/{entities,reference,random,time,generate,derive,index}.ts` | **12** (10 tables — 4 dimensions + 6 facts — plus `MonthMeta` and `HospitalDataset`), and additionally `HospitalDatasetIndex` plus 22 derivation row/filter types |
 | Shared reference/constants | `ph-constants.ts`, `lgu/shared.mock.ts` | 2 (`IcdEntry`, `Barangay`) |
-| Shared component prop types | `temporal-heatmap.tsx`, `alert-center.tsx`, `lgu-shared.tsx` | 5 (`HourWeekdayCell`, `AlertItem`, `FlowStage`, `BarangayDatum`, `CalendarDay`) |
-| Hospital (Type A) dashboards | `analytics.mock.ts` (legacy), `executive.mock.ts`, `clinical.mock.ts`, `revenue.mock.ts`, `claims.mock.ts`, `quality.mock.ts`, `laboratory.mock.ts`, `cohort.mock.ts`, `temporal.mock.ts`, `alerts.mock.ts` | 72 |
-| Hospital reports | `reports/hospital.mock.tsx` | 11 (10 row types + 1 file-level export table) |
-| LGU (Type B) dashboards | `lgu/executive.mock.ts`, `lgu/jurisdiction.mock.ts`, `lgu/maternal.mock.ts`, `lgu/ncd.mock.ts`, `lgu/tb.mock.ts`, `lgu/konsulta.mock.ts`, `lgu/population.mock.ts`, `lgu/cohort.mock.ts`, `lgu/temporal.mock.ts`, `lgu/alerts.mock.ts` | 26 |
-| LGU reports | `reports/lgu.mock.tsx` | 9 (8 row types + 1 file-level export table) |
-| **Total** | 25 mock/component files | **125 tables** |
+| Shared component prop types | `temporal-heatmap.tsx`, `alert-center.tsx`, `lgu-shared.tsx` | 5 |
+| Legacy hospital (Type A) dashboards | 10 files, see above | 72 |
+| Legacy hospital reports | `reports/hospital.mock.tsx` | 11 |
+| LGU (Type B) dashboards | 10 files, see above | 26 |
+| LGU reports | `reports/lgu.mock.tsx` | 9 |
+| **Total** | 32 files | **137** |
 
-Every attribute in every table above was read directly from the cited source file — none were inferred or assumed. Items explicitly marked `Needs verification` or left as `Unknown` in this document: the exact hour/minute unit of `LabTatCategory.median` in `executive.mock.ts`; the exact day-range boundaries implied by `ARAgingRow.d31`/`d61` field names in `revenue.mock.ts`; and the consuming component for `BarangayDatum` (`lgu-shared.tsx`), which was not in scope to trace beyond the mock/component files listed for this task.
-
+The 125 legacy tables are unchanged; the 12 new ones are additive. No legacy
+file was modified, deleted or renamed while introducing the shared dataset.

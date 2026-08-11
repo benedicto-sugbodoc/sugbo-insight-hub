@@ -1,1310 +1,812 @@
-# Top 20 New Analytics Charts for SugboDoc
+# Top 20 Charts — SugboDoc Hospital Analytics
 
-This document proposes the 20 best **new** analytics charts/visualizations to add to the SugboDoc
-prototype (React + TanStack Router + Recharts, mock-data-driven hospital and LGU/public-health
-analytics). Every chart below is grounded strictly in fields that already exist in the mock-data
-schema — no hypothetical columns, no invented relationships. The grounding source is
-`schema.md`, a verified, field-by-field inventory of every exported TypeScript
-`interface`/`type` across `src/lib/analytics/**`, `src/lib/reports/**`, and the shared
-`src/components/analytics/*.tsx` prop types. Every "Data Required" section below cites an exact
-table/field pair from that document. The de-duplication pass against the site's current chart
-inventory (18 routes, hospital + LGU, every panel and custom component, gathered by a prior
-research pass reading every route file) is described inline for each chart, and a full "Charts
-Considered But Rejected" list closes out the document with ideas that were dropped for being
-too close to something that already exists, or because the data simply isn't there.
+This document lists the twenty charts that carry the hospital (Type A) analytics side of SugboDoc
+today. It is not a wish list and it is not a proposal to rebuild the site. It is grounded in three
+things that already exist in this repository: **`chart-audit.md`** (the panel-by-panel audit of all
+87 existing hospital charts, which returned 51 Keep / 36 Modify / **0 Replace**), **`schema.md`**
+(which documents the shared synthetic hospital dataset at `src/lib/data/hospital/**` — Patients,
+Encounters, Departments, Doctors, ServiceCatalog, Billing, PhilHealthClaim, PWDDiscount, Feedback,
+plus the `derive.ts` query layer), and the four pages that were rebuilt or newly built against that
+dataset: `src/routes/analytics.executive.tsx` (Overview, rebuilt), `src/routes/analytics.performance.tsx`
+(new), `src/routes/analytics.revenue.tsx` + `src/routes/analytics.claims.tsx` (Financial and Claims,
+migrated and improved per the audit), and `src/routes/analytics.patient-experience.tsx` (new).
+Per the supervisor's explicit instruction — *"Do NOT blindly replace the existing charts with 20 new
+charts… The Top 20 should therefore be a combination of: Keep + Improve + Add rather than simply:
+Delete everything + create 20 new charts"* — every entry below is tagged **Existing** (kept as-is
+because it already works), **Improved** (an audit "Modify" that was actually changed during this
+implementation, with the change stated), or **New** (built to fill a gap the audit named). The split
+is **9 New, 8 Improved, 3 Existing**. Nothing was deleted to make room: the 67 other audited panels
+are still live on their pages.
 
-## Note on D3 recommendations
+**On D3.** There is no `d3.md` in this project — it was searched for exhaustively during the audit
+and confirmed absent. The D3 recommendations below are therefore based on general D3.js knowledge,
+and they follow what was actually built: in almost every case Recharts or a small hand-rolled SVG /
+CSS component is the right tool and D3 would add a dependency without adding an answer. D3 is
+recommended only where there is a genuine capability gap, and that is called out explicitly rather
+than sprinkled across every entry.
 
-The original brief for this document asked to read a project reference file, `d3.md`, before
-making any D3.js recommendations. That file was searched for exhaustively — across the repo,
-session uploads, and the outputs folder — and **does not exist anywhere in this project.**
-Rather than fabricate a citation to it, the D3 recommendations in this document are based on
-general D3.js domain knowledge (scales, `d3-sankey`, `d3-hierarchy`, `d3-geo`, `d3-force`,
-`d3-brush`/`d3-zoom`, `d3-hexbin`, `d3-voronoi`, chord/arc diagrams, streamgraphs, etc.), not on
-any SugboDoc-specific guidance. Where D3 is recommended, the reasoning is spelled out explicitly
-so it can be checked against the actual codebase rather than taken on faith. In most of the 20
-charts below, a standard Recharts chart or a hand-rolled component in the style of the ones
-already in the codebase (`StageFlow`, `CalendarHeatmap`, `ComplianceHeatmap`) is judged sufficient
-and is recommended over D3 — D3 is reserved for the one chart in this set with a genuine,
-unaddressed technique gap (a true multi-node flow network), consistent with the instruction not
-to force D3 onto every chart.
+## How the hierarchy works
 
-## How these 20 work together
-
-These charts are not 20 unrelated ideas dropped onto 20 unrelated pages — they extend the
-lifecycle stories the existing dashboards already tell, and several are deliberately designed to
-link across the hospital/LGU boundary that the current site treats as two separate worlds. On the
-hospital side, the existing Executive dashboard's headline KPIs (mortality, ALOS, revenue,
-claims, remittance) each currently drill only "by department" in the shared drill-drawer; charts
-1, 2, and 12 extend those same KPIs along dimensions the drawer doesn't yet reach (diagnosis,
-admission type, and a payer × department cross-tab), so a director looking at the mortality KPI
-tile can follow it to a genuinely new cut instead of the same department breakdown seen
-everywhere else. Charts 6, 7, and 8 form a claims-lifecycle chain that the existing Claims
-dashboard doesn't close: the current pipeline funnel stops at "Remittance Received" and the
-denial-reasons bar stops at "why claims were denied" — this set adds what happens *after*
-(remittance batch settlement status, the CR1/CR2/patient-share structure of what actually gets
-paid, and whether denied claims are recovered on appeal), so a Revenue Cycle manager can trace a
-claim end-to-end. Charts 4, 5, 9, 10, and 11 pull previously chart-less report data (daily
-census, departmental AR trend, formulary, lab workload, discharge audit — all currently only
-sitting in flat report tables under Part 4/6 of the schema) into purpose-built operational views,
-each mapped to a specific "who acts on this" role (bed manager, revenue cycle lead, pharmacy/P&T
-committee, lab manager, discharge planner). On the LGU side, charts 15, 16, 17, 19, and 20 fill an
-analogous gap: FHSIS (16) becomes the LGU's own "cross-program executive rollup" the way the
-Executive dashboard rolls up hospital KPIs, and it should sit one click above the
-program-specific dashboards (Maternal, NCD, TB, Konsulta) the same way the hospital Executive
-dashboard sits above Clinical/Revenue/Claims/Quality/Lab. Chart 13 (the BHC→hospital referral
-Sankey) is the one chart in this set explicitly designed as a **cross-link**: it uses LGU report
-data (`ReferralRow`) whose `receivingFacility` values include the hospital tenant itself, so it is
-the natural "where did this patient come from" companion to the hospital's own referral-flow
-chart, and a plausible click-through target from both the LGU Executive dashboard and the
-hospital Clinical dashboard. Chart 18 (dengue severity/outcome) is designed to sit directly next
-to the LGU Executive dashboard's existing Epidemic Curve, which currently shows *volume* of a
-live 2.6×-baseline dengue outbreak but nothing about how severe those cases are — 18 answers "how
-bad is it," which is the natural next question after "how much of it is there." Throughout, the
-underlying period/department/barangay/payer filters that already exist on each route (per the
-inventory) are assumed as shared context — none of these charts introduce a new filter axis the
-page doesn't already have, with the partial exception of the two new "matrix" cross-tabs (12, 14)
-which are explicitly designed to let a user click a cell and land on the same drill-drawer pattern
-already used elsewhere in the app.
+The nav in `src/routes/analytics.tsx` is now split into two tiers. The first tier is the analysis
+hierarchy, and it runs **Overview → Comparison → Financial/Claims investigation → Patient/Experience
+investigation**: `/analytics/executive` (Overview — what is happening, what changed, what needs
+attention, and handoff links into the deeper pages), `/analytics/performance` (Comparison — rank
+departments, services, physicians and time periods against each other), `/analytics/revenue` and
+`/analytics/claims` (Financial and Claims investigation — where the money leaks and where claims
+stall), and `/analytics/patient-experience` (Patient/Experience investigation — who the patients are,
+what they score us, and which operational conditions move the score). Every one of those five pages
+mounts `GlobalHospitalFilterBar` from `src/components/analytics/hospital-filter-context.tsx`, so a
+department or date selected on one page survives navigation to the next, and every number is derived
+from `src/lib/data/hospital/derive.ts` so the pages reconcile with each other. Drill-down is the last
+step of the hierarchy and lives inside those pages: a click on a bar, bubble, slice or stage opens a
+drawer that ends at real `Encounter` / `Billing` / `PhilHealthClaim` / `Feedback` rows. The second
+tier, labelled **Detail** in the nav, holds the specialist tools — Clinical, Quality, Laboratory,
+Cohort Builder, Patterns, Alerts and the New Charts preview. Those still run on the legacy per-file
+mock data in `src/lib/analytics/**` and deliberately do **not** mount the shared filter provider,
+because a filter that silently does nothing is worse than no filter at all. See the closing section
+for the honest migration status.
 
 ---
 
+## 1. Department comparison — volume, revenue and a quality axis in one view
 
+**Page:** Performance Analysis (`/analytics/performance`) · **New**
 
-## 1. Mortality Rate by Diagnosis
+- **Purpose.** Rank every department against every other on a metric of the user's choosing, while
+  simultaneously showing a second financial metric and a third quality metric, so "biggest" and
+  "best" can be separated in one glance.
+- **Decision-maker question.** Which departments are carrying the volume, which are converting that
+  volume into revenue, and which are doing it while performing badly on care quality?
+- **Data dimensions.** Department (8 rows) × three independently selectable measures. Sourced from
+  `volumeByDepartment`, `revenueByDepartment`, `losStatsByDepartment`, `npsByDepartment` and
+  `readmissionRateByPayerAndDepartment`, joined in the page-local `buildDeptRows()`.
+- **Metrics.** Ten selectable per axis (`DEPT_METRICS`): encounters, inpatient admissions, gross
+  revenue, cash collected, revenue per encounter, collection rate, mean length of stay, NPS index,
+  30-day readmission rate, average daily census.
+- **Why it is useful.** The audit's cross-cutting finding #4 was that comparison across departments
+  existed only as unsorted tables or single-measure bars. This panel is the direct answer: a tall bar
+  rendered red is a high-volume department performing badly on the quality metric, which no single-
+  measure chart on the old site could express. A live-computed callout underneath names the
+  department whose share of revenue diverges furthest from its share of encounters.
+- **Visualization type.** Recharts `ComposedChart` — `Bar` on the left axis, `Line` on the right axis,
+  dual labelled y-axes, mean `ReferenceLine`.
+- **Multi-dimensional encoding.** Three meaningful variables, all user-chosen and all independent:
+  **bar height** = primary metric, **line** = secondary metric on its own axis, **bar fill colour** =
+  a third metric banded into tertiles by `bandRows()`, direction-aware via each metric's
+  `higherIsBetter` flag. The colour is never a restatement of bar length, which is precisely the
+  failure mode the audit flagged in 13 "Yes (weakly)" charts.
+- **Sorting.** Full `SortControl`: sort by the bar metric, the line metric, the colour metric, or
+  department name, with an explicit ascending/descending toggle. The sort applies to the **chart**,
+  not only to the table view.
+- **Drill-down.** Bar click and table-row click both open the department drawer with the real
+  encounter list (`filterEncounters` narrowed to that `departmentId`, rendered through
+  `toEncounterRecords`).
+- **Filters.** All eight shared filters: date range, department, service, doctor, encounter type,
+  payment status, PhilHealth claim status, PWD status.
+- **Interactions.** Three metric selectors, sort field + direction, hover tooltip showing all three
+  metrics plus the tertile band, "view as table" with 9 sortable columns, click-to-drill.
+- **D3 recommendation.** None. A grouped composed chart with a colour scale is squarely inside
+  Recharts; adding D3 here would buy nothing.
+- **Priority.** High.
+- **Existing / Improved / New.** **New.**
 
+## 2. Physician comparison — volume, revenue and compliance
 
+**Page:** Performance Analysis · **New**
 
-### Business Question
+- **Purpose.** Give physician-level comparison a real chart instead of an unsorted HTML table, and
+  make it possible to rank doctors on one metric while measuring them on another.
+- **Decision-maker question.** Who is high-volume but low-revenue, who is fully booked yet producing
+  below-median revenue, and who has a compliance problem (uncoded diagnoses, denied claims,
+  readmissions) rather than a productivity one?
+- **Data dimensions.** Physician (20 doctors, filterable by a minimum-case floor) × department
+  (colour in quadrant mode) × nine selectable measures. Built by `buildDoctorRows()` over
+  `doctorProductivity()` plus a single pass over the same filtered encounter cohort for the three
+  compliance signals the derive layer does not expose.
+- **Metrics.** `DOCTOR_METRICS`: case volume, inpatient cases, gross revenue, revenue per case,
+  capacity utilisation, mean LOS, ICD-10 coding completeness, PhilHealth denial rate, 30-day
+  readmission rate.
+- **Why it is useful.** The audit named physician-level comparison "the weakest analytical axis on
+  the site" — only three panels compared doctors at all, two of them unsorted tables, and volume
+  adjustment was inconsistent. This panel adds a case floor (0/5/10/20) so low-volume doctors are not
+  falsely flagged, and a median reference so a rate is always read against its peer group.
+- **Visualization type.** Two switchable views in one card: a ranked horizontal `BarChart` with a
+  median `ReferenceLine`, and a `ScatterChart` productivity quadrant.
+- **Multi-dimensional encoding.** *Ranked view:* bar length = chosen metric, bar colour = tertile band
+  of that metric, median line = peer context (three layers). *Quadrant view:* **x** = cases handled,
+  **y** = gross revenue, **bubble size** (`ZAxis`) = capacity utilisation, **bubble colour** =
+  department, plus two median `ReferenceLine`s that encode the decision rule — five meaningful
+  variables in one view.
+- **Sorting.** `SortControl` over all nine metrics plus physician name, ascending/descending, applied
+  to the chart. The sort field and the bar metric are deliberately independent, so you can rank by
+  case volume while colouring and measuring on denial rate.
+- **Drill-down.** Bar click, bubble click and table-row click all open the physician drawer with that
+  doctor's real case list.
+- **Filters.** All eight shared filters, plus the panel-local minimum-case floor.
+- **Interactions.** View toggle, min-case floor, bar-metric selector, sort field + direction, tooltip
+  carrying volume/revenue/compliance together, table view with 11 sortable columns.
+- **D3 recommendation.** None. Recharts `ScatterChart` with `ZAxis` covers all five channels.
+- **Priority.** High.
+- **Existing / Improved / New.** **New.**
 
-Which specific diagnoses carry the highest mortality burden, and is that burden concentrated in a
-few high-risk conditions the hospital should target with a clinical improvement program?
+## 3. Volume & revenue trend by department
 
-### Data Required
+**Page:** Executive Overview (`/analytics/executive`) · **Improved**
 
-`ExecutiveData.mortality.byDiagnosis` -> anonymous `{name: string; value: number}[]` (nested inline
-inside `ExecutiveData.mortality: {value, delta, byDepartment, byDiagnosis}`).
+- **Purpose.** Show twelve months of encounter volume broken out by department with gross revenue
+  overlaid, so a volume story and a money story are read against each other rather than on two
+  separate screens.
+- **Decision-maker question.** Is the hospital growing, which departments are driving it, and is
+  revenue tracking volume or diverging from it?
+- **Data dimensions.** Month (12 buckets, 2025-09 → 2026-08) × department (8 series) × gross revenue.
+  From `volumeByDepartmentAndMonth()` and `revenueByMonth()`.
+- **Metrics.** Encounter count per department per month (or that department's % share of the month),
+  and gross charges in PHP on a second axis.
+- **Why it is useful.** The audit marked the old Admission Volume Trend "Keep" but flagged that its
+  overlapping areas occluded each other and that clicking a month did nothing. Both are fixed, and
+  the chart now carries the revenue series that used to require a separate panel.
+- **Visualization type.** Recharts `ComposedChart` — 8 gradient-filled stacked `Area` series, a gold
+  `Line` for gross revenue on a right-hand axis, and a `Brush` for range zoom.
+- **Multi-dimensional encoding.** Three meaningful variables: **time** (x), **department** (stack
+  colour), **encounter count** (stack height), plus a genuinely different fourth measure —
+  **PHP gross revenue** — on its own axis. The 100%-share mode converts the stack to mix so that
+  *composition shift* is separable from *total growth*.
+- **Sorting.** Intentionally none on the x-axis: it is chronological and re-ordering time would be
+  meaningless. Department series can be shown/hidden individually from the legend.
+- **Drill-down.** Click any month on the chart, or any row in the table view, to open the month
+  drawer.
+- **Filters.** All eight shared filters apply on the dimension axes; the **date** filter deliberately
+  does not, so the twelve-month shape stays readable — and that exception is stated on the chart, not
+  hidden.
+- **Interactions.** Stacked / 100%-share tabs, per-department legend toggles, brush zoom, rich
+  tooltip, "view as table" with a Complete/Month-to-date column, click-to-drill.
+- **What changed vs the audited version.** Re-sourced onto the shared dataset; department replaced
+  service class as the stack dimension; gross revenue added as a second axis; the 100%-stacked toggle
+  the audit asked for was added; month-level click-to-drill was added; and the month-to-date bucket is
+  now explicitly labelled from `MonthMeta.isPartial` so its dip is not misread as a decline.
+- **D3 recommendation.** None. Recharts composed area + brush is already the correct tool.
+- **Priority.** High.
+- **Existing / Improved / New.** **Improved.**
 
-### Calculation
+## 4. Where the departments differ — department positioning quadrant
 
-Each `{name, value}` pair is an **aggregated metric** — a mortality value pre-aggregated across all
-admissions grouped by diagnosis name (the mock data supplies this pre-computed; no raw per-encounter
-rows are exposed for this breakdown). The chart itself performs no further calculation beyond
-sorting the array descending by `value` and optionally computing each diagnosis's share of the
-overall `ExecutiveData.mortality.value` KPI (a **derived metric**: `byDiagnosis[i].value / mortality.value`).
+**Page:** Executive Overview · **New**
 
-### Standard Visualization
+- **Purpose.** Position all eight departments simultaneously on volume, yield and total size, so the
+  Overview can answer "where are the differences?" without a table.
+- **Decision-maker question.** Which service lines are high volume but low yield (the volume that
+  costs the most to serve), and which are niche but high-margin?
+- **Data dimensions.** Department × encounter volume × revenue per encounter × total gross revenue.
+  Built from `revenueByDepartment()` joined to `npsByDepartment()` and
+  `readmissionRateByPayerAndDepartment()` for the table view.
+- **Metrics.** Encounters, PHP per encounter, gross revenue, outstanding balance, NPS, 30-day
+  readmission rate.
+- **Why it is useful.** It is the Overview's bridge into the Comparison tier — it shows *that* the
+  departments differ and hands off to Performance Analysis for *how much*. The two median reference
+  lines make the quadrant reading explicit rather than a matter of eyeballing.
+- **Visualization type.** Recharts `ScatterChart` with `ZAxis` bubble sizing, two median
+  `ReferenceLine`s, and persistent `LabelList` department names.
+- **Multi-dimensional encoding.** Four meaningful variables: **x** = encounters, **y** = revenue per
+  encounter, **bubble area** = gross revenue, **colour** = department identity, with median-volume and
+  median-yield reference lines encoding the decision rule.
+- **Sorting.** Not applicable to the scatter itself; the paired table view is sorted by gross revenue
+  descending and is fully re-sortable.
+- **Drill-down.** Bubble click and table-row click open the department drawer.
+- **Filters.** All eight shared filters. The panel uses a minimum review window so a one-week filter
+  cannot produce a scatter built on three encounters.
+- **Interactions.** Hover tooltip with all six measures, click-to-drill, "view as table", and a direct
+  handoff link to the Performance page's department comparison.
+- **D3 recommendation.** None — but if persistent non-overlapping labels ever become a problem at
+  higher cardinality, `d3-force` collision labelling is the standard fix. At 8 points it is not
+  needed.
+- **Priority.** High.
+- **Existing / Improved / New.** **New.**
 
-Horizontal bar chart, diagnoses sorted descending, with the overall mortality KPI shown as a
-reference line/value for context.
+## 5. Gross-to-Net Revenue Bridge
 
-### D3 Recommendation
+**Page:** Financial Analysis (`/analytics/revenue`) · **Improved**
 
-Standard bar chart is sufficient — no D3 needed, because a sorted single-metric ranking is exactly
-what a plain horizontal bar does best and this chart type is already extensively used on the site.
+- **Purpose.** Show exactly where gross charges leak on the way to collected cash, with every step
+  summing the same `Billing` columns so the bridge closes to the peso.
+- **Decision-maker question.** Of everything we billed, how much did we actually keep, and which
+  deduction is responsible for the largest part of the gap?
+- **Data dimensions.** Waterfall step sequence (gross → PhilHealth benefit → PWD discount → net
+  payable → collected → outstanding) × PHP magnitude × step kind, plus the same sequence for the
+  prior period.
+- **Metrics.** PHP per step, running total, and % of gross retained at each step.
+- **Why it is useful.** The audit called this "the correct and complete answer" to the leakage
+  question and marked it Keep. Its weaknesses were all contextual: no cumulative retention, no prior
+  period, and an awkward tooltip that had to suppress the transparent base series.
+- **Visualization type.** Recharts `BarChart` with a transparent floating `base` series (the standard
+  waterfall construction), plus a second transparent-based ghost stack for the prior period.
+- **Multi-dimensional encoding.** Three meaningful variables: **ordered step** (the sequence carries
+  the analytical meaning), **PHP magnitude**, and **step kind** (start / deduction / subtotal / end)
+  as colour. The prior-period ghost adds a fourth comparison layer.
+- **Sorting.** Deliberately none — the step order *is* the semantics of a waterfall.
+- **Drill-down.** Bar click opens the step drawer with the line-item breakdown behind that step.
+- **Filters.** All eight shared filters.
+- **Interactions.** Show/hide prior-period ghost, per-step summary chips showing "% of gross
+  retained", a rewritten tooltip that reads the step row directly and reports the step delta, the
+  running total and the retained share.
+- **What changed vs the audited version.** Re-sourced onto `revenueByDepartment`/`revenueByMonth`;
+  cumulative "% of gross retained" added per step; the prior-period ghost waterfall added; the
+  tooltip rebuilt so it no longer has to suppress the base series.
+- **D3 recommendation.** None.
+- **Priority.** High.
+- **Existing / Improved / New.** **Improved.**
 
-### Relevant D3 Technique
+## 6. Revenue by Department / Service Line
 
-N/A.
+**Page:** Financial Analysis · **Improved**
 
-### Interaction
+- **Purpose.** Cross department against payer so that department size and department payer-dependency
+  are legible in the same chart.
+- **Decision-maker question.** Which departments generate the most revenue, from which payers, and
+  which are dangerously concentrated on a single payer?
+- **Data dimensions.** Department (category) × payer type (6 categories) × PHP — a true two-category
+  cross. From `revenueByDepartment()` and `payerMix()` over the same filtered cohort.
+- **Metrics.** Gross charges per department per payer, department total, collection rate, and each
+  payer's share of the department.
+- **Why it is useful.** The audit marked it Keep and named two real problems: the sort was hard-coded
+  in the mock file so the user could not re-rank, and a 100%-stacked mode was missing so payer *mix*
+  could not be compared between departments of different sizes.
+- **Visualization type.** Recharts stacked horizontal `BarChart`, six stacked payer series.
+- **Multi-dimensional encoding.** Three meaningful variables: **department** (y), **payer** (stack
+  segment colour), **PHP** (segment length). The 100%-stacked mode turns the third variable into
+  share, which is what makes cross-department mix comparison valid.
+- **Sorting.** Six exposed options: highest revenue, lowest revenue, most PhilHealth-dependent, most
+  private-pay, worst collection rate, department A–Z. The audit's specific complaint — a sort baked
+  into the data file — is resolved.
+- **Drill-down.** Segment click and table-row click open the department drawer with the per-payer
+  split and the bills behind it.
+- **Filters.** All eight shared filters.
+- **Interactions.** Absolute / 100%-stacked toggle, sort selector, payer legend, tooltip that switches
+  between PHP and share, "view as table".
+- **What changed vs the audited version.** Re-sourced onto the shared dataset (so it now reconciles
+  with the Overview's payer mix instead of using an independently declared `PayerSlice`); user-facing
+  sort added with a payer-dependency and a collection-rate ordering; 100%-stacked mode added.
+- **D3 recommendation.** None.
+- **Priority.** High.
+- **Existing / Improved / New.** **Improved.**
 
-Click a bar to open the shared drill-drawer (same pattern as the existing "by department" mortality
-breakdown) filtered to that diagnosis; hover tooltip shows value and % of total mortality.
+## 7. Drafted → Remittance pipeline
 
-### Implementation Complexity
+**Page:** Claims Analysis (`/analytics/claims`) · **Improved**
 
-Low — reuses the existing horizontal-bar pattern and drill-drawer infrastructure already built for
-the department-level version of this same KPI.
+- **Purpose.** Show where PhilHealth claims stall between drafting and remittance, in both claim count
+  and peso value, with an explicit measure of *how long* they have been stalled.
+- **Decision-maker question.** Where in the claims cycle is our money sitting, how much of it is
+  there, and which stage has breached its service level?
+- **Data dimensions.** Pipeline stage (Drafted, Submitted, Under Review, Approved, Denied, Remitted)
+  × claim count × case-rate value × average days in stage. From `claimsByStatus()` and the
+  encounter-joined claim records.
+- **Metrics.** Claims per stage, PHP case-rate value per stage, absolute and % drop-off vs the prior
+  stage, count and value currently sitting at the stage, mean days in stage.
+- **Why it is useful.** The audit called it "the most information-dense funnel on the site" and marked
+  it Keep, with one gap: *where the delay is* required a drill-down to discover. That is now on the
+  face of the chart, and stages beyond the SLA turn red.
+- **Visualization type.** Hand-rolled horizontal stage bars (the audit's judgement that a funnel's
+  sequence must not be drawn as a partition still holds), with a per-stage header line.
+- **Multi-dimensional encoding.** Four meaningful variables: **stage sequence**, **claim count** (bar
+  width), **PHP value**, and **average days in stage** — with SLA breach encoded as bar colour rather
+  than left as text.
+- **Sorting.** Deliberately none — the stage order is the semantics.
+- **Drill-down.** Stage click opens the stage worklist: real `PhilHealthClaim` rows showing the claim
+  id alongside the encounter and bill it belongs to, so every claim number on screen is traceable.
+- **Filters.** All eight shared filters. Note the denominator is smaller than total encounters by
+  construction — claims exist only for `philhealth` / `scpwd` payers — and the page states this.
+- **Interactions.** Click-to-worklist per stage, SLA colouring, drop-off shown as both a count and a
+  percentage, a companion pending-claim aging panel beside it.
+- **What changed vs the audited version.** Re-sourced onto real `PhilHealthClaim` rows joined back to
+  encounter/bill/patient/physician; average days in stage promoted from the drawer onto the bar;
+  drop-off expressed as a % as well as a count; SLA breach colouring added.
+- **D3 recommendation.** None.
+- **Priority.** High.
+- **Existing / Improved / New.** **Improved.**
 
-### Why This Chart Matters
+## 8. Denial reasons — frequency, value at risk and Pareto
 
-The Executive dashboard's mortality KPI currently only drills "by department" (per the existing
-drill-drawer inventory); clinicians think in diagnoses, not departments, when prioritizing quality
-interventions, so this closes a real gap in the same KPI's drill path without duplicating the
-existing department view.
+**Page:** Claims Analysis · **Improved**
+
+- **Purpose.** Separate "most frequent denial reason" from "most expensive denial reason", and make
+  the 80/20 point explicit.
+- **Decision-maker question.** Which denial reasons should the claims team fix first — and is the
+  most common one actually the one costing us the most?
+- **Data dimensions.** Denial reason code (DN-01…DN-07, rendered with their human-readable reason)
+  × claim count × PHP value at risk × cumulative share × appeal recovery. From
+  `claimDenialReasons()`.
+- **Metrics.** Denied claims per code, % of all denials, cumulative % of denials, PHP value at risk,
+  appeals filed, appeals won, PHP recovered, recovery rate.
+- **Why it is useful.** The audit marked this Keep but noted the y-axis showed only the opaque code,
+  that value at risk and frequency diverge and could not be compared, and that no Pareto line existed.
+  All three are addressed, and the remediation table underneath now carries the appeal-recovery column
+  the audit asked for.
+- **Visualization type.** Recharts `ComposedChart`, horizontal — `Bar` for denied claims on the bottom
+  axis, `Line` for cumulative % on a second top axis scaled 0–100.
+- **Multi-dimensional encoding.** Three meaningful variables: **reason** (y, labelled in words, not
+  codes), **denial frequency** (bar length), **cumulative share of all denials** (Pareto line on its
+  own axis). PHP value at risk and appeal recovery are the fourth and fifth variables, carried in the
+  tooltip and in the paired remediation table where they can be read numerically and sorted.
+- **Sorting.** Four exposed options: most frequent, highest value at risk, worst appeal recovery, code
+  A–Z. The chart and the remediation table always share the same ordering.
+- **Drill-down.** Bar click, table-row click and the per-row "Open worklist" button all open that
+  specific denial code's claim worklist — fixing the audit's finding that the Executive page's version
+  drilled to a generic "Denied" bucket without passing the reason code.
+- **Filters.** All eight shared filters.
+- **Interactions.** Sort selector, dual-axis tooltip, "view as table" with six sortable columns, plus
+  the standalone remediation table with appeal counts and recovered PHP.
+- **What changed vs the audited version.** Re-sourced onto real denial codes with `CLAIM_DENIAL_REASONS`
+  labels; human-readable y-axis; cumulative Pareto line added; reason-specific drill-down; appeal and
+  recovery columns added; user-facing sort added.
+- **D3 recommendation.** None.
+- **Priority.** High.
+- **Existing / Improved / New.** **Improved.**
+
+## 9. Case rate vs actual gross charges
+
+**Page:** Claims Analysis · **Improved**
+
+- **Purpose.** Identify the diagnoses where treating a patient costs more than PhilHealth reimburses,
+  and rank them by *total* exposure rather than by per-case gap.
+- **Decision-maker question.** Which conditions are we losing money on, and does that loss actually
+  matter at our volume?
+- **Data dimensions.** Diagnosis (ICD-10) × PhilHealth case rate × actual gross charge × claim volume
+  × case type. Case rate comes from `PH_DIAGNOSIS_CASE_RATES` via the claim rows; actual charge from
+  the joined `Billing`.
+- **Metrics.** Case rate (PHP), actual average gross charge (PHP), claims, patients, gap per case, gap
+  %, total exposure = gap × claims.
+- **Why it is useful.** The audit called this "genuinely excellent" and marked it Keep, but flagged
+  three concrete faults: the break-even diagonal was hard-coded to a 70,000 segment and would not
+  extend, outliers were discoverable only on hover, and the case-type legend displayed without
+  filtering. All three are fixed, and the "top by total exposure" companion list the audit
+  recommended as the actionable ordering now exists.
+- **Visualization type.** Recharts `ScatterChart` with `ZAxis` bubble sizing, a data-driven break-even
+  `ReferenceLine`, and a second transparent `Scatter` layer carrying persistent outlier labels.
+- **Multi-dimensional encoding.** Four meaningful variables plus a rule: **x** = case rate, **y** =
+  actual charge, **bubble size** = claim volume, **colour** = case type, and the 45° break-even
+  diagonal encodes the decision rule directly on the plot.
+- **Sorting.** Not applicable to a scatter. The companion exposure list beneath it is ranked by
+  `gap × claims` descending, which is the ordering that actually drives action.
+- **Drill-down.** Point click and exposure-list click both open the diagnosis drawer with its claims.
+- **Filters.** All eight shared filters, plus a panel-local case-type legend where clicking a case
+  type genuinely removes it from the plot rather than merely dimming it.
+- **Interactions.** Click-to-filter case-type chips, persistent labels on the worst outliers, margin-
+  aware tooltip, click-to-drill, ranked exposure list.
+- **D3 recommendation.** None. Recharts `ScatterChart` + `ZAxis` covers every channel used.
+- **Priority.** High.
+- **Existing / Improved / New.** **Improved.**
+
+## 10. Experience vs operational load, by department
+
+**Page:** Patient / Experience Analysis (`/analytics/patient-experience`) · **New**
+
+- **Purpose.** Put patient experience and the operational reality that produces it on the same chart,
+  and state the strength of the relationship numerically instead of asserting it in a caption.
+- **Decision-maker question.** Which departments score worst with patients, and is that explained by
+  their volume, their length of stay, or their readmission rate?
+- **Data dimensions.** Department × an experience score × a selectable operational overlay. From
+  `npsByDepartment()`, `volumeByDepartment()`, `losStatsByDepartment()` and
+  `readmissionRateByPayerAndDepartment()`.
+- **Metrics.** NPS index (−100…+100) or average CSAT (1–5) as the score; encounter volume, mean LOS or
+  30-day readmission rate as the overlay; plus responses, detractor share and responses per 100
+  encounters in the table.
+- **Why it is useful.** The audit found the old satisfaction data was an explicit placeholder
+  ("Connect patient feedback module") with a single unlabelled mini-bar. This panel is the first real
+  experience analysis on the site, and it goes past ranking: the description line computes a **Pearson
+  r** across departments on every filter change and states whether the relationship is weak, moderate
+  or strong, so the correlation is a measured claim rather than a written one.
+- **Visualization type.** Recharts `ComposedChart` — `Bar` for the score on a fixed-domain left axis,
+  `Line` for the operational overlay on a right axis, hospital-average `ReferenceLine`.
+- **Multi-dimensional encoding.** Three meaningful variables: **department** (x), **experience score**
+  (bar height, with the hospital average drawn as a reference so every bar is read as a gap), and a
+  genuinely different **operational measure** (line, own axis). Bar colour bands the NPS tier, which
+  here is an intentional restatement for scannability and is labelled as such.
+- **Sorting.** Six exposed options: worst score first, best score first, highest operational load,
+  lowest operational load, most responses, department A–Z.
+- **Drill-down.** Bar click and table-row click open the department drawer with that department's
+  actual `Feedback` responses, including free-text comments and the encounter context behind each.
+- **Filters.** All eight shared filters, plus a panel-level survey-window switch (full 12-month window
+  vs the global date filter) — because post-discharge surveys are low volume and a one-week slice
+  cannot rank eight departments. The switch only widens the date range; every other filter still
+  applies in both modes.
+- **Interactions.** Score selector, overlay selector, sort selector, tooltip carrying score +
+  responses + overlay, "view as table" with ten sortable columns.
+- **D3 recommendation.** None.
+- **Priority.** High.
+- **Existing / Improved / New.** **New.**
+
+## 11. Physician claims performance — volume-adjusted
+
+**Page:** Claims Analysis · **Improved**
+
+- **Purpose.** Compare physicians on claim outcomes without letting a small denominator create a false
+  outlier.
+- **Decision-maker question.** Which physicians have a genuine claims problem, as opposed to two
+  denied claims out of three?
+- **Data dimensions.** Physician × claims filed × denial rate × case-rate value × department. Joined
+  from `PhilHealthClaim` → `Encounter` → `Doctor`.
+- **Metrics.** Claims filed, approval rate, denial rate, most common denial reason (with its count),
+  case-rate value.
+- **Why it is useful.** The audit called the old version "the *only* physician-comparison view in the
+  entire hospital analytics module", noted it was a table with no sorting, and flagged that
+  `commonDenialReason` was assigned positionally in the mock (`i % denialReasons.length`) and was
+  therefore a label rather than a fact. Both are fixed.
+- **Visualization type.** Recharts `ScatterChart` with `ZAxis`, three `ReferenceLine`s (peer median
+  denial rate, peer median volume, and the 5% PhilHealth benchmark), backed by a paged sortable table.
+- **Multi-dimensional encoding.** Four meaningful variables: **x** = claims filed (the denominator
+  guard), **y** = denial rate, **bubble size** = case-rate value at stake, **colour** = performance
+  band relative to the peer median and the benchmark. The two median lines encode the "is this a real
+  outlier?" rule directly.
+- **Sorting.** Five exposed options on the companion table: most claims filed, worst denial rate,
+  worst approval rate, highest case-rate value, physician A–Z.
+- **Drill-down.** Point click and row click open that physician's claim worklist.
+- **Filters.** All eight shared filters. The panel is marked restricted (Admin / Claims Officer).
+- **Interactions.** Click-to-drill, peer-band legend, sort selector, "show N more" paging.
+- **What changed vs the audited version.** Re-sourced onto real claims; the volume-adjusted scatter and
+  peer medians the audit recommended were added alongside the table; sorting added; `commonDenialReason`
+  is now the genuine statistical mode of that physician's denial codes.
+- **D3 recommendation.** None.
+- **Priority.** High.
+- **Existing / Improved / New.** **Improved.**
+
+## 12. AR Aging by Payer
+
+**Page:** Financial Analysis · **Improved**
+
+- **Purpose.** Show which payers are sitting on the oldest receivables, and how much of each payer's
+  balance is in the collection-risk bucket.
+- **Decision-maker question.** Whose money is stuck, for how long, and where should the collections
+  team spend the week?
+- **Data dimensions.** Payer type × aging bucket (current / 31–60 / 61–90 / 90+) × PHP outstanding.
+  From `arAgingByPayer()`.
+- **Metrics.** Outstanding balance per bucket, total AR per payer, and the >90-day share as a
+  percentage.
+- **Why it is useful.** The audit marked it Keep with three named gaps: grouped bars made the total per
+  payer unreadable, the >90-day share (the number leadership actually asks for) was not shown, and the
+  bars were not clickable even though patient-level rows sat directly underneath.
+- **Visualization type.** Recharts `BarChart`, switchable between grouped and stacked.
+- **Multi-dimensional encoding.** Three meaningful variables: **payer** (x), **aging bucket** (an
+  ordered category encoded as colour/series), **PHP** (bar height). The >90 share is a derived fourth
+  read-out per payer.
+- **Sorting.** Four exposed options: largest total AR, largest >90 exposure, worst >90 share, payer
+  A–Z.
+- **Drill-down.** Segment click opens that payer + that aging bucket's actual open accounts — the
+  drill-down the panel previously did not have at all.
+- **Filters.** All eight shared filters.
+- **Interactions.** Grouped/stacked toggle, sort selector, per-payer summary chips that turn red above
+  a 40% >90-day share, click-to-drill. The "Open accounts over 90 days" table below it is now sortable
+  four ways, pageable beyond the old hard 8-row cap, and renders the `lastAction` column that the
+  audit found was fetched and never displayed.
+- **What changed vs the audited version.** Re-sourced onto the shared dataset; stacked/grouped toggle
+  added; >90-day share surfaced per payer; drill-down added; the companion account table gained
+  sorting, paging and its missing column.
+- **D3 recommendation.** None.
+- **Priority.** High.
+- **Existing / Improved / New.** **Improved.**
+
+## 13. What actually moves the score — experience driver correlations
+
+**Page:** Patient / Experience Analysis · **New**
+
+- **Purpose.** Quantify how much each operational failure costs in patient-experience points, by
+  cross-referencing survey responses against the encounter, billing and claim records behind them.
+- **Decision-maker question.** If we fix one thing, which one buys back the most patient goodwill?
+- **Data dimensions.** Five operational conditions × the surveyed cohort split into "with" and
+  "without" for each. Conditions: adverse discharge outcome (Expired / HAMA / Transferred), 30-day
+  readmission, long stay above the department's P90 LOS, overdue or written-off bill, denied
+  PhilHealth claim.
+- **Metrics.** Cohort size on each side, average 0–10 NPS answer on each side, the gap in points, and
+  the corresponding swing in the NPS index.
+- **Why it is useful.** This is the panel that makes the shared dataset pay off. Feedback scores in
+  `generate.ts` are constructed as a function of real operational outcomes rather than rolled
+  independently, so this table is measuring a relationship that actually exists in the data — and it
+  is the only place on the site where a satisfaction number is traced back to a billing status or a
+  claim denial. The headline sentence above the table is auto-selected as the largest gap among
+  cohorts with at least 20 responses on both sides, and it is recomputed on every filter change rather
+  than being authored copy.
+- **Visualization type.** A ranked comparison table with a computed headline callout. This is a
+  deliberate choice, not a fallback: the useful output is five paired means and their differences, and
+  a bar chart of five two-value comparisons would carry less information per pixel than the numbers.
+- **Multi-dimensional encoding.** Intentionally not a multi-variable *encoding* — it is a paired
+  comparison across five conditions, and its analytical value is the contrast (with vs without) rather
+  than a spatial mapping. Small cohorts are explicitly badged "small n" below 20 responses so a large
+  gap on a thin sample is visibly less trustworthy.
+- **Sorting.** Three exposed options: biggest score gap, smallest score gap, largest cohort.
+- **Drill-down.** Row click opens that driver's cohort — the actual survey responses from encounters
+  that met the condition, with their comments and encounter context.
+- **Filters.** All eight shared filters, plus the page's survey-window switch.
+- **Interactions.** Sort selector, small-n badging, click-to-drill, an auto-computed headline that
+  names the worst driver and states the rule it applied.
+- **D3 recommendation.** None — this is a table by design.
+- **Priority.** High.
+- **Existing / Improved / New.** **New.**
+
+## 14. Comorbidity Clustering
+
+**Page:** Clinical Analytics (`/analytics/clinical`, Detail tier) · **Existing**
+
+- **Purpose.** Show which diagnosis pairings drive the longest stays and the highest mortality.
+- **Decision-maker question.** Which combinations of conditions should we build a care pathway for,
+  because they cost the most days and the most lives?
+- **Data dimensions.** Primary diagnosis + comorbid diagnosis pairing × department. From
+  `ClinicalData.comorbidity -> ComorbidityBubble[]` (`primaryDx, comorbidDx, department, frequency,
+  avgLos, mortalityRate`).
+- **Metrics.** Pairing frequency, average length of stay, mortality rate.
+- **Why it is useful.** The audit's verdict was "already exemplary multi-dimensionality" — it is the
+  single best-encoded chart on the legacy side, and it answers a question no other panel on the site
+  asks. It is kept exactly as built.
+- **Visualization type.** Recharts bubble `ScatterChart` with `ZAxis`.
+- **Multi-dimensional encoding.** Four meaningful variables: **x** = pairing frequency, **y** =
+  average LOS, **bubble size** = mortality rate, **colour** = department.
+- **Sorting.** Not applicable to a scatter. The audit's suggested improvement — a "highlight top N by
+  mortality" control — has not been implemented and remains open.
+- **Drill-down.** Bubble click opens a `DrillDrawer` with department, cohort size, average LOS and
+  mortality rate. It is one level deep and terminal; extending it to a patient list remains open.
+- **Filters.** None shared. This page is still on legacy mock data and does **not** mount the shared
+  filter provider; its only local control is the ICD code picker on the neighbouring trend chart.
+- **Interactions.** Hover tooltip, click-to-drill.
+- **D3 recommendation.** Conditional and currently declined. A `d3-force` collision layout for
+  persistent labels, or a chord / adjacency view showing *clusters* of co-occurring conditions, would
+  show something a scatter cannot. Worth revisiting only if comorbidity network analysis becomes a
+  stated requirement; the scatter answers the current question correctly.
+- **Priority.** Medium (improvement priority — the chart itself is not at risk).
+- **Existing / Improved / New.** **Existing.**
+
+## 15. HAC Rate — Statistical Process Control chart
+
+**Page:** Quality & Patient Safety (`/analytics/quality`, Detail tier) · **Existing**
+
+- **Purpose.** Determine whether the hospital-acquired-condition rate is under statistical control, and
+  flag the points that are special-cause rather than routine variation.
+- **Decision-maker question.** Is this month's HAC rate a real signal that needs an investigation, or
+  is it inside the noise band?
+- **Data dimensions.** Period (time) × HAC category (switchable) × rate, against three control
+  references. From `QualityData.hac -> HacPoint[]` (`period, rate, mean, ucl, lcl, category,
+  specialCause`).
+- **Metrics.** HAC rate per 1,000 patient-days, series mean, upper and lower control limits, and a
+  special-cause flag.
+- **Why it is useful.** The audit called it "structurally the most sophisticated chart in the module"
+  and marked it Keep. SPC is the correct methodology for this question and nothing on the shared-
+  dataset pages replaces it.
+- **Visualization type.** Recharts `ComposedChart` — `Line` with a custom dot renderer, plus three
+  `ReferenceLine`s for mean / UCL / LCL, and a special-cause callout list below the plot.
+- **Multi-dimensional encoding.** Four meaningful layers: **time** (x), **rate** (y), **three control
+  references**, and a **special-cause flag** encoded in dot size and colour.
+- **Sorting.** None — chronological.
+- **Drill-down.** Works from the special-cause callout list. It is **broken from the dots**: the dot's
+  `onClick` passes a permanently empty `period` string, so clicking a point opens a drawer that finds
+  no matching data. This is a known open defect recorded in `chart-audit.md`, not a claim of
+  completeness.
+- **Filters.** Category tabs only; no shared filter bar on this page. A second open defect: `mean`,
+  `ucl` and `lcl` are flat constants read from `hac[0]`, so filtering by category does not recompute
+  the limits.
+- **Interactions.** Category tabs, hover tooltip, callout-list drill.
+- **D3 recommendation.** None. SPC is well within Recharts; the outstanding work (standard run rules —
+  seven-point runs, trends) is computation, not rendering.
+- **Priority.** High (the two defects above should be fixed; the chart type is correct).
+- **Existing / Improved / New.** **Existing.**
+
+## 16. Service utilisation within department
+
+**Page:** Performance Analysis · **New**
+
+- **Purpose.** Rank the chargemaster services a selected patient cohort actually consumed, so
+  department-level revenue can be decomposed into what was delivered.
+- **Decision-maker question.** Inside this department, which services carry the revenue, and are they
+  high-value services or high-volume cheap ones?
+- **Data dimensions.** Service (58 catalogue items) × service category × cost-centre department ×
+  five measures. From `serviceUtilization()`.
+- **Metrics.** Encounters carrying the service, units delivered, charge-line revenue, revenue per
+  encounter, share of the window's charge-line revenue.
+- **Why it is useful.** No chart on the audited site connected departments to the services their
+  patients consumed — the closest was the Clinical procedure treemap, which covers surgical procedures
+  only. This panel also makes its cohort semantics explicit on screen: the department selector picks
+  the *patients*, then every charge line on their encounters is counted, including ancillary lab and
+  imaging owned by another cost centre. That is the department → service question, and it is why the
+  "Cost centre" column in the table can legitimately differ from the department you selected.
+- **Visualization type.** Recharts horizontal `BarChart` with a value `LabelList`, height scaled to
+  the row count.
+- **Multi-dimensional encoding.** Three meaningful variables: **service** (y), **the selected measure**
+  (bar length), and **revenue per encounter** banded into tertiles as bar colour — so a long bar in red
+  is high total spend spread thinly across many encounters, which bar length alone cannot say.
+- **Sorting.** Five metrics plus service name, with an ascending/descending toggle, and a separate
+  Top 10 / 15 / 25 / all selector. The panel header states what share of total charge-line revenue the
+  displayed subset covers, so truncation is never silent.
+- **Drill-down.** Bar click and table-row click open the service drawer listing the encounters that
+  carried that service.
+- **Filters.** All eight shared filters, plus a panel-local department focus selector that can either
+  follow the global filter or override it.
+- **Interactions.** Department focus, top-N, sort field + direction, tooltip with revenue per
+  encounter as the target, "view as table" with eight sortable columns.
+- **D3 recommendation.** None.
+- **Priority.** Medium.
+- **Existing / Improved / New.** **New.**
+
+## 17. Time-period comparison by department
+
+**Page:** Performance Analysis · **New**
+
+- **Purpose.** Compare two time windows department by department, and rank by movement rather than by
+  size.
+- **Decision-maker question.** Which departments moved most between these two periods, and did the
+  hospital total move with them or against them?
+- **Data dimensions.** Department × two time periods × one selectable measure. Built by
+  `buildPeriodComparison()` over two independent `EncounterFilter` windows.
+- **Metrics.** Encounters, gross revenue, cash collected, revenue per encounter — each shown for both
+  periods with the absolute and percentage change. Rate metrics are re-derived from numerator and
+  denominator for the hospital total row, because a per-encounter rate cannot be summed across
+  departments.
+- **Why it is useful.** Period-over-period comparison previously existed only as a delta chip on a KPI
+  card, with no way to see which department produced the delta. This panel makes the movement itself
+  the sortable dimension.
+- **Visualization type.** Recharts grouped `BarChart`, two bars per department, plus a "biggest movers"
+  ranked table that always shares the chart's ordering.
+- **Multi-dimensional encoding.** Three meaningful variables: **department** (x), **period** (paired
+  bars), **measure magnitude** (bar height), with the derived change surfaced in the tooltip and as
+  the primary sort key.
+- **Sorting.** Five exposed options — % change (the default, because it answers the panel's own
+  question), absolute change, period A, period B, department name — with a direction toggle. The sort
+  reorders departments, never time.
+- **Drill-down.** Either bar, or a movers-table row, opens period A's encounters for that department.
+- **Filters.** All eight shared filters, plus a comparison-basis control: filtered range vs the
+  immediately preceding equal-length window, or any two months the user picks.
+- **Interactions.** Metric selector, basis selector, two month pickers, sort field + direction. If
+  either selected month is the dataset's month-to-date bucket, a warning banner appears telling the
+  reader to treat the % change as directional rather than like-for-like — the partial-month trap the
+  audit flagged, handled explicitly.
+- **D3 recommendation.** None.
+- **Priority.** Medium.
+- **Existing / Improved / New.** **New.**
+
+## 18. PWD Mandatory Discount by Department
+
+**Page:** Financial Analysis · **New**
+
+- **Purpose.** Show the statutory RA 10754 discount the hospital actually absorbed, per department,
+  sourced row-by-row rather than by applying a rate.
+- **Decision-maker question.** How much mandatory discount are we carrying, where is it concentrated,
+  and how much of each department's charges even qualify for it?
+- **Data dimensions.** Department × qualifying amount × discount absorbed × discounted bill count.
+  From `pwdDiscountByDepartment()`, i.e. the `PWDDiscount` table.
+- **Metrics.** Discounted bills, qualifying amount (PHP), discount absorbed (PHP), VAT-exempt value
+  (PHP).
+- **Why it is useful.** This is the supervisor's own worked example of a data-integrity rule — a
+  discount must only ever appear where the transaction genuinely qualifies — made visible. The panel
+  enforces it structurally rather than by convention: the generator only emits a `PWDDiscount` row for
+  a bill belonging to a `Patient.isPWD === true` patient with a qualifying amount, and the chart
+  applies **no rate anywhere**. A department with no PWD-qualifying bill therefore renders as absent,
+  not as an estimate. The statutory 20% is displayed from the `PWD_DISCOUNT_RATE` constant as a badge,
+  never multiplied into a value.
+- **Visualization type.** Recharts horizontal `BarChart`, two bars per department.
+- **Multi-dimensional encoding.** Three meaningful variables: **department** (y), **qualifying amount**
+  and **discount absorbed** as two paired bars on a shared PHP scale — so the gap between them shows
+  how much of the department's charge base is *not* discount-eligible. Room & Board is excluded from
+  qualifying categories, which is why the qualifying amount sits well below gross, and the panel says
+  so on screen.
+- **Sorting.** Four exposed options: largest discount absorbed, largest qualifying amount, most
+  discounted bills, department A–Z.
+- **Drill-down.** Either bar, or a table row, opens that department's discounted bills.
+- **Filters.** All eight shared filters, including the PWD-status filter, which lets the whole page be
+  narrowed to PWD or non-PWD patients.
+- **Interactions.** Sort selector, tooltip with all four measures, "view as table", click-to-drill, and
+  a computed footnote stating how many bills across how many PWD-flagged patients carried a discount
+  and what share of gross charges that represents. A companion monthly panel ("PWD Discount Volume &
+  Impact") separates a rise driven by more PWD patients from a rise in average discount by plotting a
+  derived discount-per-bill line alongside the count.
+- **D3 recommendation.** None.
+- **Priority.** Medium.
+- **Existing / Improved / New.** **New.**
+
+## 19. SSI Rate — Funnel Plot by Surgeon
+
+**Page:** Quality & Patient Safety (Detail tier) · **Existing**
+
+- **Purpose.** Distinguish surgeons whose surgical-site-infection rate is a true outlier from those
+  whose rate is small-sample noise.
+- **Decision-maker question.** Is this surgeon's infection rate a real problem, or an artefact of
+  operating on twelve patients?
+- **Data dimensions.** Surgeon × case volume × observed SSI rate, against an expected-rate reference.
+  From `QualityData.ssi.surgeons -> SsiSurgeon[]` (`surgeon, department, caseVolume, observedRate,
+  expectedRate, outlier`).
+- **Metrics.** Case volume, observed SSI rate, expected rate, outlier flag.
+- **Why it is useful.** The audit marked it Keep and called it "methodologically the right chart" —
+  volume adjustment is the entire point of a funnel plot and this is the only panel on the site that
+  does it correctly. It is the model the rest of the site is being moved toward (the new Performance
+  and Claims physician panels both adopted its median-and-denominator approach).
+- **Visualization type.** Recharts `ScatterChart` with an expected-rate `ReferenceLine`, outlier points
+  coloured red.
+- **Multi-dimensional encoding.** Four meaningful variables: **x** = case volume, **y** = observed
+  rate, **reference line** = expected rate, **colour** = outlier flag.
+- **Sorting.** Not applicable to a scatter; the audit's recommended companion ranked list by
+  (observed − expected) × volume has not been built and remains open.
+- **Drill-down.** Point click opens the surgeon's department, volume, observed vs expected rate and
+  funnel status.
+- **Filters.** None shared — this page is still on legacy mock data.
+- **Interactions.** Hover tooltip, click-to-drill.
+- **D3 recommendation.** None, and explicitly so. The one real gap is that it is a funnel plot
+  *without funnel limits* — the curved 95% / 99.8% control bounds that make it volume-adjusting rather
+  than merely a scatter. Those are two computed paths and Recharts can render them as a `Line` over a
+  synthetic series; this is arithmetic, not a rendering-library problem. The current `outlier` flag is
+  also a crude ratio test (>1.8× or <0.25× expected) rather than a confidence-interval test.
+- **Priority.** High (the funnel limits are the highest-value fix in the Detail tier).
+- **Existing / Improved / New.** **Existing.**
+
+## 20. Experience across the demographic split — age band × gender
+
+**Page:** Patient / Experience Analysis · **New**
+
+- **Purpose.** Establish whether a *demographic* — not just a department — is having a worse
+  experience, and show the panel it is measured against.
+- **Decision-maker question.** Are we failing a particular age group, and is that group large enough
+  for the finding to matter?
+- **Data dimensions.** Patient age band (7 bands: <1, 1–4, 5–17, 18–39, 40–59, 60–74, 75+) × gender ×
+  survey score × response count. The scores come from the filtered `Feedback` records joined to
+  `Patient.birthDate` through `ageBand(ageOn(...))`; the companion pyramid comes from
+  `patientAgeMix()`.
+- **Metrics.** NPS index per age band, average CSAT per age band, response count, and the male/female
+  split of respondents. The companion pyramid carries registered-patient counts by band and gender.
+- **Why it is useful.** Demographic analysis did not exist anywhere on the audited hospital side. This
+  pairing answers two different questions honestly: the experience chart says *who is unhappy*, and the
+  population pyramid beside it says *how many of them there are*, which is the denominator you need
+  before acting on a −40 NPS in a band with nine respondents.
+- **Visualization type.** Recharts `ComposedChart` — `Bar` for the NPS index on a fixed −100…+100 axis,
+  `Line` for response count on a second axis, hospital-NPS `ReferenceLine`. The companion demographic
+  panel is a Recharts `BarChart` with `stackOffset="sign"` — a proper back-to-back population pyramid
+  with male plotted negative and female positive.
+- **Multi-dimensional encoding.** Three meaningful variables in the experience chart: **age band** (x),
+  **NPS index** (bar height, colour-banded by tier, read against the hospital reference line), and
+  **sample size** (response-count line on its own axis) — so a dramatic score on a thin band is
+  visibly thin. The companion pyramid crosses **age band** × **gender** × **headcount**.
+- **Sorting.** Four exposed options on the experience chart: natural age-band order (default), worst
+  NPS first, best NPS first, most responses. The pyramid offers natural order, largest band first,
+  smallest band first.
+- **Drill-down.** Bar click and table-row click open that age band's survey responses with their
+  comments and encounter context.
+- **Filters.** All eight shared filters plus the survey-window switch, for the experience chart. The
+  population pyramid is deliberately **not** narrowed by the encounter filters — it describes the
+  registered patient panel, not the filtered encounter cohort — and the panel description states this
+  explicitly rather than letting the reader assume otherwise.
+- **Interactions.** Sort selectors, dual-axis tooltip reporting NPS index, average CSAT, response count
+  and the male/female split, "view as table" on both panels, click-to-drill.
+- **D3 recommendation.** None. A signed stacked bar is the standard population-pyramid construction and
+  Recharts supports it directly.
+- **Priority.** Medium.
+- **Existing / Improved / New.** **New.**
 
 ---
 
-
-
-## 2. ALOS by Admission Type
-
-
-
-### Business Question
-
-Do emergency, elective, transfer-in, and newborn admissions have meaningfully different average
-lengths of stay — and if emergency ALOS is rising, does that signal ED boarding or downstream bed
-pressure?
-
-### Data Required
-
-`ExecutiveData.alos.byAdmissionType` -> anonymous `{name: string; value: number}[]` (nested inside
-`ExecutiveData.alos: {value, delta, byDepartment, byChapter, byAdmissionType}`).
-
-### Calculation
-
-Each `{name, value}` pair is an **aggregated metric** (mean length-of-stay pre-aggregated across all
-admissions of that admission type). The chart also plots the hospital-wide `ExecutiveData.alos.value`
-(also an aggregated metric, aggregated across all admissions regardless of type) as a reference line
-so each admission-type bar can be read as above/below the overall average.
-
-### Standard Visualization
-
-Horizontal or vertical bar chart with a `ReferenceLine` at the overall ALOS value.
-
-### D3 Recommendation
-
-Standard bar chart with reference line is sufficient — no D3 needed; this is a four-category
-comparison against a benchmark, a pattern Recharts already handles well elsewhere on the site (e.g.
-Hand Hygiene Monthly Trend's target line).
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Hover tooltip with exact days and delta vs. overall average; click-through to the admissions table
-(`ExecutiveData.admissions.rows`, `AdmissionRow[]`) pre-filtered by admission type is possible in a
-future iteration but not required for v1.
-
-### Implementation Complexity
-
-Low — same four-bar-plus-reference-line shape as several existing charts.
-
-### Why This Chart Matters
-
-`byAdmissionType` is one of three ALOS breakdowns already computed in the mock data
-(`byDepartment`, `byChapter`, `byAdmissionType`) but only the department cut is currently exposed
-anywhere on the site; this uses data that already exists but is completely unvisualized, and
-surfaces a genuinely different operational signal (patient-flow/boarding pressure) than the
-department cut does.
-
----
-
-
-
-## 3. Physician Productivity Quadrant
-
-
-
-### Business Question
-
-Which physicians are high-volume but low-revenue (possible undercoding), and which are
-high-revenue but have a low PhilHealth approval rate (possible documentation/compliance risk)?
-
-### Data Required
-
-`PhysicianActivityRow` (file-local interface in `src/lib/reports/hospital.mock.tsx`, report R-07
-"Physician Activity Report") -> fields `physician, specialty, department, isoDate, cases, avgLos, procedures, pfRevenue, philhealthPfClaims, approvalRate`.
-
-### Calculation
-
-X-axis = `cases` summed across the reporting window for a physician (**aggregated metric**, sum
-across that physician's monthly rows). Y-axis = `pfRevenue` summed the same way (**aggregated
-metric**). Bubble size = `approvalRate` for the physician's most recent month (**raw data** field,
-read directly off the row, not recomputed). Quadrant lines are drawn at the cohort median of each
-axis (**aggregated metric**, median across all physicians).
-
-### Standard Visualization
-
-Scatter/bubble chart (physician-level, one bubble per physician) — the same visual grammar as the
-existing Comorbidity Clustering bubble chart, applied to a completely different table.
-
-### D3 Recommendation
-
-Standard Recharts `ScatterChart` with bubble sizing is sufficient — no D3 needed; bubble scatter is
-already a well-covered chart type on the site (Comorbidity Clustering, SSI Funnel Plot).
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Hover shows physician name, specialty, cases, revenue, approval rate; click opens a detail panel
-listing that physician's 12-month `PhysicianActivityRow` trend.
-
-### Implementation Complexity
-
-Medium — `PhysicianActivityRow` currently only powers a flat report table (R-07), so this requires
-a new aggregation step (group 180 monthly rows down to one point per physician) that doesn't exist
-yet, plus a new route/section since no current analytics page owns "physician productivity" as a
-concept.
-
-### Why This Chart Matters
-
-This is a different table entirely from the two existing physician-adjacent charts: the Clinical
-dashboard's Surgeon Performance table is OR/surgical-outcomes-only (`SurgeonRow`, a different local
-name pool), and the Claims dashboard's Physician Claim Row is submission/denial-focused
-(`PhysicianClaimRow`). `PhysicianActivityRow` is the only table with both case volume *and*
-professional-fee revenue *and* approval rate together, and today it is trapped inside a report
-table nobody would think to open for performance management — this promotes genuinely unused data
-into a chart.
-
----
-
-
-
-## 4. Ward Occupancy & Discharge Readiness Heatmap
-
-
-
-### Business Question
-
-Which specific wards are gridlocked *today* — full beds combined with a backlog of patients who
-are clinically ready to leave but haven't — so bed management can intervene before it becomes an ED
-boarding problem?
-
-### Data Required
-
-`CensusRow` (file-local interface in `src/lib/reports/hospital.mock.tsx`, report R-01 "Daily Census
-Report") -> fields `date, ward, capacity, occupied, admissionsToday, dischargesToday, pendingDischarges`.
-
-### Calculation
-
-Grid cell color = occupancy rate, a **derived metric** computed per row as `occupied / capacity`.
-Cell badge/overlay = `pendingDischarges`, a **raw data** field read directly off the row (the count
-of discharges pending clearance that ward/day). No values are aggregated across wards or days for
-the base grid — each cell is one ward × one day.
-
-### Standard Visualization
-
-A ward (rows) × day (columns) grid/heatmap, color-coded by occupancy rate with a secondary visual
-cue (e.g. a dot or number badge) for `pendingDischarges` — the same grid pattern as the existing
-ICD-10 Case Heatmap (dept × month) and Compliance Heatmap (patient × month), applied to a
-ward/day/discharge-readiness axis none of those use.
-
-### D3 Recommendation
-
-Standard hand-rolled grid (in the style of the existing `HourWeekdayHeatmap`/`ComplianceHeatmap`
-components) is sufficient — no D3 needed; grid-based heatmaps at this scale (8 wards × 21 days ≈
-168 cells) are already a proven, well-covered pattern in this codebase and don't need D3's
-performance or layout machinery.
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Click a cell to drill into that ward/day's admissions/discharges detail; hover tooltip shows
-capacity, occupied, available, and pending-discharge count.
-
-### Implementation Complexity
-
-Medium — `CensusRow` currently only powers the R-01 flat report table, so this needs a new
-day-grain aggregation surfaced as a first-class chart (not just a sortable table), plus a home on
-an operational/bed-management view.
-
-### Why This Chart Matters
-
-The existing BOR content on the Executive dashboard is monthly-trend and department/ward
-snapshot-level (`ExecutiveData.bor.trend`, `.byWard`) — useful for a director's monthly review, but
-useless for "which ward do I call right now." `CensusRow` is the only table in the schema with
-*daily* ward-level capacity data plus the `pendingDischarges` discharge-readiness signal, and it's
-currently locked inside a flat report nobody would check for real-time bed management.
-
----
-
-
-
-## 5. Departmental AR Trend (Outstanding % Over Time)
-
-
-
-### Business Question
-
-Which departments' uncollected receivables are trending worse month over month, before they show
-up as a crisis in the aging buckets?
-
-### Data Required
-
-`RevenueRow` (file-local interface in `src/lib/reports/hospital.mock.tsx`, report R-06 "Revenue &
-Collection Report") -> fields `month, isoDate, department, grossCharges, outstandingAr`.
-
-### Calculation
-
-Y-axis = outstanding-AR rate, a **derived metric** computed per row as `outstandingAr / grossCharges`, plotted as one line per department across the 12 months in the dataset. No
-cross-row aggregation is needed since `RevenueRow` already has one row per month × department.
-
-### Standard Visualization
-
-Multi-line trend chart, one line per department (8 lines, using the existing `PH_DEPARTMENT_COLORS`
-palette for visual consistency with other department-colored charts on the site).
-
-### D3 Recommendation
-
-Standard multi-line chart is sufficient — no D3 needed; multi-line trends with 6–10 series are
-already a well-covered, well-understood pattern on the site (Disease Trend Analysis, Communicable
-Disease Trend).
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Legend toggle to isolate one department's line; hover tooltip with exact AR% and PHP amount; click
-a department's line to open its 12-month detail table.
-
-### Implementation Complexity
-
-Low — straightforward line-chart binding once `RevenueRow` is pulled out of the report-only file and
-exposed to a chart component.
-
-### Why This Chart Matters
-
-The existing "AR Aging by Payer" chart is a single-snapshot grouped bar by **payer**, with no time
-dimension and no department dimension (`ARAgingRow`, 5 static rows). `RevenueRow` is the only table
-with both a department axis *and* a 12-month time axis for outstanding AR — this is the trend view
-that would let a Revenue Cycle director catch a department's AR problem forming instead of finding
-out about it only after it's already aged past 90 days.
-
----
-
-
-
-## 6. PhilHealth Remittance Batch Status & Value Tracker
-
-
-
-### Business Question
-
-How much expected PhilHealth remittance is sitting in batches that are stuck (not yet received),
-and which case types are driving the delay?
-
-### Data Required
-
-`ExecutiveData.remittance.batches` -> anonymous `{batch: string; caseType: string; claims: number; amount: number; status: string}[]` (nested inside `ExecutiveData.remittance: {received, expected, delta, batches}`).
-
-### Calculation
-
-Each `{batch, caseType, claims, amount, status}` row is **raw data** (one row per remittance batch).
-The chart groups rows by `status` and sums `amount` per status — an **aggregated metric**
-(`sum(amount) grouped by status`) — and separately sums `amount` by `caseType` within
-each status for a stacked breakdown (also an **aggregated metric**). The overall
-`ExecutiveData.remittance.received` / `.expected` values (already-aggregated fields supplied by the
-mock data) anchor the chart as a reference total.
-
-### Standard Visualization
-
-Stacked horizontal bar chart: one bar per status (e.g. "Received," "Processing," "Pending"),
-segmented by case type, with total expected remittance shown as a reference marker.
-
-### D3 Recommendation
-
-Standard stacked bar chart is sufficient — no D3 needed; stacked bars by status/category are
-already the most common chart pattern on the site (Payer Mix trended bar, Discharge Disposition
-stacked bar).
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Click a status segment to see the underlying batch list (`batch`, `caseType`, `claims`, `amount`);
-hover for per-segment PHP value and claim count.
-
-### Implementation Complexity
-
-Low — the data already exists as a clean array on `ExecutiveData`; this is purely a matter of
-wiring an unused field to a new chart.
-
-### Why This Chart Matters
-
-`ExecutiveData.remittance.batches` is not surfaced as a chart anywhere per the existing inventory —
-only the top-line received/expected KPI numbers are shown. This closes the claims lifecycle: the
-existing Claims dashboard's pipeline funnel ends at "Remittance Received" as a single stage; this
-chart is the natural next-level view of what's actually happening inside that final stage,
-batch by batch.
-
----
-
-
-
-## 7. Claims Reimbursement Structure by Case Type (CR1 / CR2 / Patient Share)
-
-
-
-### Business Question
-
-For each PhilHealth case type, how much of the total charge is actually covered by the two-tranche
-case-rate mechanism (CR1 + CR2) versus left as patient out-of-pocket exposure — and is that
-exposure concentrated in specific case types the hospital should counsel patients about upfront?
-
-### Data Required
-
-`ClaimRow` (file-local interface in `src/lib/reports/hospital.mock.tsx`, report R-04 "PhilHealth
-Claims Register") -> fields `caseType, grossCharges, cr1, cr2, patientShare`.
-
-### Calculation
-
-For each case type, sum `cr1`, `cr2`, and `patientShare` across all claims of that type — three
-**aggregated metrics** (`sum(cr1)`, `sum(cr2)`, `sum(patientShare)`, each grouped by `caseType`).
-Each case type's total is also expressed as a percentage split, a **derived metric**
-(`sum(cr1) / (sum(cr1)+sum(cr2)+sum(patientShare))`, etc.) for the 100%-stacked view.
-
-### Standard Visualization
-
-100%-stacked horizontal bar chart, one bar per case type, three segments (CR1 / CR2 / Patient
-Share).
-
-### D3 Recommendation
-
-Standard 100%-stacked bar is sufficient — no D3 needed; this exact stacking pattern already exists
-on the site for Discharge Disposition, just applied to different fields.
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Hover for exact PHP amounts per segment; click a case type to filter the claims register-style
-table to that case type.
-
-### Implementation Complexity
-
-Low — `ClaimRow` already carries all three fields per claim; this is a straightforward group-and-sum.
-
-### Why This Chart Matters
-
-This is a genuinely different question from the two existing case-rate charts on the Claims
-dashboard: "Case rate vs actual charges" (`CaseRateScatterPoint`) and "Case rate coverage ratio"
-(`CoverageDiagnosisRow`) both compare the case-rate *target* against actual *charges*, at the
-diagnosis level. This chart instead shows how PhilHealth's own two-installment payment mechanism
-(CR1/CR2) splits against what the patient is left to pay, at the case-type level — data (`cr1`,
-`cr2`) that exists nowhere else in the schema and isn't visualized anywhere today.
-
----
-
-
-
-## 8. Appeal Recovery Funnel & Amount Recovered
-
-
-
-### Business Question
-
-Of the claims that get denied, how many are actually appealed, and how much PHP is being recovered
-through the appeal process versus written off by inaction?
-
-### Data Required
-
-`DenialRow` (file-local interface in `src/lib/reports/hospital.mock.tsx`, report R-05 "Denial &
-Appeal Tracker") -> fields `denialCode, appealFiledDate, appealStatus, amountRecovered`.
-
-### Calculation
-
-Count of claims in each `appealStatus` bucket (`Not Filed`, `Filed — Pending`, `Under Review`,
-`Approved`, `Rejected`) is an **aggregated metric** (`count(*) grouped by appealStatus`). Total PHP
-recovered is `sum(amountRecovered)` restricted to `appealStatus === "Approved"` rows — an
-**aggregated metric**. The overall appeal rate (`% of denied claims with appealFiledDate not null`)
-is a **derived metric** computed from the raw `appealFiledDate` field.
-
-### Standard Visualization
-
-Funnel-style horizontal bar chart (reusing the existing hand-rolled `StageFlow` component pattern
-already used for cascades-of-care) showing Denied → Appeal Filed → Under Review → Approved, with a
-KPI callout for total PHP recovered.
-
-### D3 Recommendation
-
-Standard hand-rolled funnel (`StageFlow`-style) is sufficient — no D3 needed; this is exactly the
-shape the existing `StageFlow` component was built for, just applied to appeals instead of
-cascades-of-care.
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Click a stage to see the underlying claim list; a KPI card alongside shows recovery rate as % of
-value-at-risk.
-
-### Implementation Complexity
-
-Low-Medium — reuses the existing `StageFlow` component; the only new work is shaping `DenialRow`
-into `{id, label, value}` stages, which the codebase already does four times for other funnels.
-
-### Why This Chart Matters
-
-The existing Claims dashboard tells you *why* claims get denied (Top 10 Denial Reasons bar, Denial
-Rate Trend) but nothing about what happens *after* — whether the hospital actually pursues and wins
-appeals. `DenialRow`'s `appealStatus`/`amountRecovered` fields are unused anywhere today; this chart
-closes the loop on the denial story and gives Revenue Cycle leadership a direct ROI number for the
-appeals process.
-
----
-
-
-
-## 9. Formulary Generic-Substitution Rate by Drug
-
-
-
-### Business Question
-
-Which specific drugs have the worst generic-substitution compliance, so the Pharmacy & Therapeutics
-committee knows exactly where to focus formulary enforcement?
-
-### Data Required
-
-`FormularyRow` (file-local interface in `src/lib/reports/hospital.mock.tsx`, report R-09
-"Prescription & Formulary Compliance Report") -> fields `generic, brandOrdered, orders, percentGeneric, inNf`.
-
-### Calculation
-
-`percentGeneric` per drug, aggregated across all physicians who prescribed it, is an **aggregated
-metric** (mean or volume-weighted `percentGeneric` grouped by `generic`). `orders` summed per drug
-is also an **aggregated metric**, used to size/weight the bars so high-volume, low-compliance drugs
-stand out.
-
-### Standard Visualization
-
-Horizontal bar chart of generic-substitution rate by drug, sorted ascending (worst compliance
-first), with bar length or a secondary encoding for order volume, and a target reference line.
-
-### D3 Recommendation
-
-Standard bar chart is sufficient — no D3 needed; ranked-bar-with-target-line is already a proven
-pattern on the site (Hand Hygiene Compliance, Prescription Appropriateness).
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Click a drug to see the physician-level breakdown for that drug (`FormularyRow` rows filtered by
-`generic`); hover shows brand ordered, order count, and NF (National Formulary) status.
-
-### Implementation Complexity
-
-Low — `FormularyRow` already has every field needed; just needs a group-by-drug aggregation step.
-
-### Why This Chart Matters
-
-The existing "Prescription Appropriateness by Dept" chart uses a completely different table
-(`PrescriptionDept`) at the department grain (`genericRate`, `antibioticRate`, `polypharmacyRate`
-per department). `FormularyRow` is drug-grain and currently sits only inside a flat report table
-(R-09); a P&T committee needs to know *which drugs*, not just which departments, are the compliance
-problem — this is a materially different, decision-relevant cut of formulary data that's currently
-invisible.
-
----
-
-
-
-## 10. Lab Test Efficiency: Order Volume vs. Average TAT
-
-
-
-### Business Question
-
-Which specific lab tests combine high order volume with slow turnaround time — the tests where a
-process fix would have the biggest impact on overall lab throughput?
-
-### Data Required
-
-`LabWorkloadRow` (file-local interface in `src/lib/reports/hospital.mock.tsx`, report R-08
-"Laboratory Workload Report") -> fields `test, category, ordersReceived, avgTat, criticalResults`.
-
-### Calculation
-
-X-axis = `ordersReceived` summed per test across the reporting window (**aggregated metric**).
-Y-axis = `avgTat` averaged per test across the reporting window (**aggregated metric**, mean of a
-field that is itself already a per-month average in the raw row — an average-of-averages). Bubble
-size = `criticalResults` summed per test (**aggregated metric**).
-
-### Standard Visualization
-
-Scatter/bubble chart, one bubble per named test, with quadrant reference lines at the median volume
-and median TAT.
-
-### D3 Recommendation
-
-Standard Recharts `ScatterChart` with bubble sizing is sufficient — no D3 needed; scatter/bubble is
-already well-covered on the site (Comorbidity Clustering, SSI Funnel Plot, Case Rate vs. Actual
-Charges).
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Hover shows test name, category, total orders, avg TAT, critical result count; click filters the
-lab-workload table to that test's 12-month history.
-
-### Implementation Complexity
-
-Low-Medium — `LabWorkloadRow` currently only feeds the R-08 flat report; needs a group-by-test
-aggregation across its 12 monthly rows per test.
-
-### Why This Chart Matters
-
-The existing Laboratory dashboard's TAT chart (`TatBoxStat`) is at the **category** grain
-(Hematology, Chemistry, etc., 7 categories) via box-and-whisker distribution — useful for spotting
-outlier *results* within a category, but useless for identifying which *named test* is the
-bottleneck. `LabWorkloadRow` is the only table with both volume and TAT at the individual-test
-grain, and it's currently trapped in a flat report (R-08) that nobody browsing the Laboratory
-Analytics dashboard would ever see.
-
----
-
-
-
-## 11. Discharge Readiness Blockers (Missing Documents & Incomplete Steps)
-
-
-
-### Business Question
-
-What is the single most common blocker keeping patients from a clean discharge — a specific missing
-document, or an unfinished workflow step — so the discharge-planning team can fix the process
-upstream instead of firefighting case by case?
-
-### Data Required
-
-`DischargeAuditRow` (file-local interface in `src/lib/reports/hospital.mock.tsx`, report R-10
-"Discharge Clearance Audit Report") -> fields `stepsIncomplete, missingDocuments, claimStatus, daysSinceDischarge, csfCollected`.
-
-### Calculation
-
-Count of rows per `missingDocuments` value (e.g. "CSF," "None," other document types) is an
-**aggregated metric** (`count(*) grouped by missingDocuments`). CSF (Claim Signature Form)
-collection rate is a **derived metric** computed as `count(csfCollected === true) / count(*)`. Average `stepsIncomplete` and `daysSinceDischarge` are **aggregated metrics** (mean
-across the 26 audit rows).
-
-### Standard Visualization
-
-Horizontal bar chart of blocker frequency (missing-document type), paired with a KPI card for CSF
-collection rate and average days-since-discharge-with-open-items.
-
-### D3 Recommendation
-
-Standard bar chart is sufficient — no D3 needed; a simple ranked-frequency bar is the clearest way
-to show "what's the #1 blocker," and this pattern is already common on the site.
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Click a blocker type to see the patient-level list of open cases with that blocker; sortable by
-`daysSinceDischarge` to prioritize the oldest open items.
-
-### Implementation Complexity
-
-Low — `DischargeAuditRow` already has all needed fields; simple group-and-count.
-
-### Why This Chart Matters
-
-The existing "Unbilled Encounters Funnel" (`FunnelStage` in `revenue.mock.ts`) shows *how many*
-encounters are stuck between discharge and payment, but not *why*. `DischargeAuditRow` is the only
-table with the actual root-cause field (`missingDocuments`) and is currently used only for a flat
-report table (R-10) — this chart turns "encounters are stuck" into "here's specifically what to
-fix," a materially more actionable view built from data that already exists.
-
----
-
-
-
-## 12. Readmission Rate Matrix: Payer × Department
-
-
-
-### Business Question
-
-Are 30-day readmissions concentrated in specific payer-and-department combinations (e.g. a
-particular payer's patients in a particular department), which would point to a targeted discharge-
-planning or care-coordination fix rather than a hospital-wide problem?
-
-### Data Required
-
-`CohortPatient` (`src/lib/analytics/cohort.mock.ts`) -> fields `department, payer, readmitted30d`.
-
-### Calculation
-
-For every payer × department cell, compute the readmission rate as a **derived metric per group**:
-`count(readmitted30d === true) / count(*)`, i.e. an **aggregated metric** (readmission rate
-aggregated across all `CohortPatient` rows sharing that payer and department). This is a genuine
-two-dimensional cross-tabulation, not achievable with the existing single-field Cohort Builder
-breakdown.
-
-### Standard Visualization
-
-A payer (rows) × department (columns) grid/heatmap, color-coded by readmission rate, in the style
-of the existing `ComplianceHeatmap` component.
-
-### D3 Recommendation
-
-Standard hand-rolled grid is sufficient — no D3 needed; at this scale (roughly 5 payers × 8
-departments ≈ 40 cells) a simple color-coded grid is clear and fast, and the codebase already has a
-proven component (`ComplianceHeatmap`) for exactly this shape. A D3 matrix/correlation-matrix
-technique would only be warranted at much larger N than this dataset supports.
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Click a cell to open the drill-drawer filtered to that payer + department combination, listing the
-underlying `CohortPatient` rows; hover for exact rate and sample size (cells with very small N
-should be visually flagged as low-confidence).
-
-### Implementation Complexity
-
-Low-Medium — reuses the existing heatmap-grid component pattern; the only new logic is the two-
-dimensional group-by instead of the Cohort Builder's existing single-field group-by.
-
-### Why This Chart Matters
-
-The existing 30-Day Readmission Rate chart is a single time-series line (month over month,
-hospital-wide) with `ReferenceArea` bands; the generic Cohort Builder only supports one
-breakdown field at a time. Neither can show "which specific combination of payer and department"
-is driving readmissions — this fills that specific, previously-impossible cross-tab, using data
-(`CohortPatient`) that already exists and is already imported for the Cohort Builder tool.
-
----
-
-
-
-## 13. BHC-to-Hospital Referral Network
-
-
-
-### Business Question
-
-Which Barangay Health Centers are referring patients to which hospitals, for what reasons, and with
-what outcomes — and where is the referral loop breaking down (no feedback returned to the referring
-BHC)?
-
-### Data Required
-
-`ReferralRow` (file-local interface in `src/lib/reports/lgu.mock.tsx`, report R-16 "Referral
-Network Analysis Report") -> fields `bhc, referralReason, receivingFacility, outcomeDocumented, outcome, feedbackReceived`.
-
-### Calculation
-
-This chart is built directly from **raw data**: each `ReferralRow` is one referral event, and the
-Sankey link weights are **aggregated metrics** — the flow volume from a given `bhc` node through a
-given `referralReason` node to a given `receivingFacility` node to a given `outcome` node is
-`count(*) grouped by (bhc, referralReason, receivingFacility, outcome)`. The feedback-loop closure
-rate is a **derived metric**: `count(feedbackReceived === true) / count(outcomeDocumented === true)`.
-
-### Standard Visualization
-
-A standard bar chart could show top BHC→facility pairs, but it would flatten out the
-reason/outcome dimensions that are exactly what makes this data actionable — a bar chart is
-explicitly not recommended here.
-
-### D3 Recommendation
-
-D3 recommended — this is the one chart in this set with a genuine, unaddressed technique gap: a
-true multi-stage flow (BHC → reason → receiving facility → outcome) with four node tiers and
-weighted links. The codebase's existing hand-rolled `ReferralSankey` component only handles a
-simple two-column source→target flow for hospital-internal referrals (`SankeyLink`); it was not
-built for, and would need substantial rework to support, a four-tier node structure with proper
-link routing and overlap avoidance.
-
-### Relevant D3 Technique
-
-`d3-sankey` (node/link layout with `sankeyLinkHorizontal()` for curved multi-tier flow ribbons).
-
-### Interaction
-
-Hover a link for its exact case count and PHP-adjacent context (referral reason); click a node
-(e.g. a specific receiving facility) to highlight all flows through it and filter a detail table
-below; a toggle to color links by `feedbackReceived` status to visually surface loop breakdowns.
-
-### Implementation Complexity
-
-High — genuinely new: requires pulling `d3-sankey` in as a dependency (not currently used anywhere
-in the codebase), aggregating `ReferralRow`'s 60 rows into weighted node/link data, and building a
-new React wrapper component around the D3 layout (the existing Recharts-based charts don't have a
-Sankey primitive, and the hand-rolled `ReferralSankey` isn't structured for 4 tiers).
-
-### Why This Chart Matters
-
-This is the deliberate cross-link chart in this set: `ReferralRow.receivingFacility` includes real
-hospital names (e.g. "Cebu City Medical Center"), so this is the one place in the entire site where
-LGU-side data and hospital-side identity meet. It belongs as a click-through target from both the
-LGU Executive dashboard (referral completion is already an LGU Executive KPI, just without any
-network detail) and the hospital Clinical dashboard (which has its own, internal-only referral
-Sankey) — giving a City Health Officer and a Hospital Medical Director a shared view of the same
-patient-flow problem from opposite ends.
-
----
-
-
-
-## 14. Immunization Coverage Matrix (Barangay × Antigen)
-
-
-
-### Business Question
-
-Which barangay is missing which specific vaccine — not just "which barangay has low overall
-coverage," but "which antigen gap in that barangay needs a targeted catch-up campaign"?
-
-### Data Required
-
-`ImmunizationCoverageRow` (file-local interface in `src/lib/reports/lgu.mock.tsx`, report R-12
-"Immunization Coverage by Antigen × Barangay") -> fields `barangay, bcg, hepB, penta, opv, pcv, mmr`.
-
-### Calculation
-
-Each cell (barangay × antigen) is **raw data** — a coverage percentage read directly off the row,
-no aggregation needed since `ImmunizationCoverageRow` already has one row per barangay with all six
-antigen columns. The only derived value is a per-barangay "fully-immunized-child" proxy, a
-**derived metric** computed as the minimum coverage % across the six antigen columns for that row
-(the weakest link determines full-course completion risk).
-
-### Standard Visualization
-
-A barangay (rows) × antigen (columns) grid/heatmap, color-coded by coverage %, in the style of the
-existing `ComplianceHeatmap` component.
-
-### D3 Recommendation
-
-Standard hand-rolled grid is sufficient — no D3 needed; at 15 barangays × 6 antigens (90 cells) this
-is well within the range the existing `ComplianceHeatmap` component (10 patients × 12 months = 120
-cells) already handles cleanly.
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Click a cell to see the barangay's full `BarangayMetricSet.immunizationByAntigen` detail and
-assigned PHN contact; hover for exact %; sort rows by the derived "weakest antigen" metric to
-surface the most at-risk barangays first.
-
-### Implementation Complexity
-
-Low-Medium — `ImmunizationCoverageRow` currently only feeds the R-12 flat report table; needs to be
-reshaped into a grid-cell array, reusing the existing heatmap-grid component.
-
-### Why This Chart Matters
-
-The existing Immunization content is either city-wide-only (the `CoverageRadar`, 9 antigens, no
-barangay breakdown) or barangay-only-with-a-single-blended-metric (the horizontal bar of overall
-`immunizationCoverage` per barangay, no per-antigen detail). Neither shows the actual cross of
-barangay × antigen, which is precisely what a catch-up-campaign planner needs and which
-`ImmunizationCoverageRow` already has, unused, sitting in a flat report.
-
----
-
-
-
-## 15. NCD Burden vs. Control Bubble Chart
-
-
-
-### Business Question
-
-Which barangays combine a high NCD burden *and* poor treatment control — the highest-priority
-targets for intensified hypertension/diabetes program outreach — versus barangays with high
-prevalence but already-good control, which need less urgent intervention?
-
-### Data Required
-
-`NcdBarangay` (`src/lib/analytics/lgu/ncd.mock.ts`) -> fields `name, ncdIndex, patientCount, controlRate`.
-
-### Calculation
-
-X-axis = `ncdIndex`, itself a **derived metric** already computed in the mock data per barangay as
-`htnPrevalence*0.45 + dmPrevalence*0.35 + obesityPrevalence*0.2` (a weighted composite of three raw
-prevalence fields). Y-axis = `controlRate` — **raw data**, read directly per barangay row. Bubble
-size = `patientCount` — **raw data**. No further cross-row aggregation; this chart plots one bubble
-per `NcdBarangay` row as-is.
-
-### Standard Visualization
-
-Scatter/bubble chart, one bubble per barangay, with quadrant reference lines at the city median
-`ncdIndex` and median `controlRate`.
-
-### D3 Recommendation
-
-Standard Recharts `ScatterChart` with bubble sizing is sufficient — no D3 needed; this exact visual
-grammar (bubble chart, size = volume, two axes = severity/outcome) is already proven on the site for
-the hospital's Comorbidity Clustering chart, and 15 barangays is a small, easily-labeled N.
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Hover shows barangay name, index, control rate, patient count; click opens the barangay's full NCD
-detail (medication compliance heatmap row, referral count).
-
-### Implementation Complexity
-
-Low — all three fields already exist on `NcdBarangay`, which is already fetched for the existing
-choropleth on the same route; this is an additional view over data already in memory.
-
-### Why This Chart Matters
-
-The existing NCD Burden Index choropleth shows only `ncdIndex` as a single color-ramped value per
-barangay tile — it cannot show whether a high-burden barangay is *already being managed well*
-(good `controlRate`) or is a true crisis (high burden, poor control, large `patientCount`). This
-bubble chart adds the two dimensions the choropleth structurally can't show at once, turning "where
-is NCD burden highest" into "where should the next outreach team actually go."
-
----
-
-
-
-## 16. FHSIS Program Section Achievement Rollup
-
-
-
-### Business Question
-
-Across all six FHSIS program sections (Family Planning, Maternal Care, Child Care, Nutrition, NCD,
-TB), which section is furthest behind its national target this reporting period — the one question
-a CHO needs answered before allocating scarce field staff?
-
-### Data Required
-
-`FhsisRow` (file-local interface in `src/lib/reports/lgu.mock.tsx`, report R-11 "Monthly FHSIS") ->
-fields `section, indicator, month, count, target`.
-
-### Calculation
-
-For each `section`, sum `count` and sum `target` across all its constituent indicators and the
-selected month(s) — two **aggregated metrics** (`sum(count)`, `sum(target)`, both grouped by
-`section`). Section-level achievement % is a **derived metric**: `sum(count) / sum(target)` per
-section.
-
-### Standard Visualization
-
-`RadialBarChart` (a standard Recharts primitive), one radial bar per section, showing % of target
-achieved — a chart type not currently used anywhere on the site but well suited to "six categories,
-each a % of target" without needing D3.
-
-### D3 Recommendation
-
-Standard Recharts `RadialBarChart` is sufficient — no D3 needed. This isn't a capability gap D3
-would meaningfully close; it's simply an unused-but-standard Recharts primitive that fits this
-specific "N categories, each a bounded percentage" shape better than a bar chart would, without
-introducing a new charting library.
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Click a section's radial segment to drill into its constituent indicators (e.g. click "Maternal
-Care" to see "ANC 1st visit," "Facility-based delivery," etc. individually); hover for exact
-count/target.
-
-### Implementation Complexity
-
-Low-Medium — `FhsisRow` currently only feeds the R-11 flat report; needs a group-by-section rollup,
-plus introducing `RadialBarChart` (already part of the installed Recharts package, just unused).
-
-### Why This Chart Matters
-
-This is the LGU-side analog of the hospital Executive dashboard: just as that dashboard rolls up
-ALOS/BOR/mortality/revenue into one screen, FHSIS is the LGU's own cross-program regulatory
-rollup, and today it's invisible — sitting only inside a flat report table (R-11) nobody would
-check to answer "which program is falling behind." Placing this one level above Maternal/NCD/TB/
-Konsulta (which already have their own detailed dashboards) gives the LGU Executive view the same
-"rollup → drill into specialist dashboard" structure the hospital side already has.
-
----
-
-
-
-## 17. Konsulta Utilization Rate by Membership Type
-
-
-
-### Business Question
-
-Which PhilHealth Konsulta membership segment (Formal Economy, Informal Economy, Indigent/NHTS,
-Senior Citizen) is under-utilizing their enrolled benefit — signaling an outreach or access barrier
-specific to that segment, distinct from any particular BHC's performance?
-
-### Data Required
-
-`KonsultaUtilRow` (file-local interface in `src/lib/reports/lgu.mock.tsx`, report R-15 "Konsulta
-Enrollment & Utilization Report") -> fields `bhc, month, membershipType, enrolledMembers, activeVisitors`.
-
-### Calculation
-
-For each `membershipType`, sum `enrolledMembers` and `activeVisitors` across all BHCs and the
-selected month(s) — two **aggregated metrics**. Utilization rate per membership type is a
-**derived metric**: `sum(activeVisitors) / sum(enrolledMembers)`.
-
-### Standard Visualization
-
-Vertical or horizontal bar chart, one bar per membership type, showing utilization rate, with a
-citywide-average reference line.
-
-### D3 Recommendation
-
-Standard bar chart is sufficient — no D3 needed; four-category comparison against a benchmark is
-already a proven, simple pattern on the site.
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Click a membership-type bar to see the BHC-level breakdown for that segment (cross-reference with
-existing "Konsulta Visit Volume by BHC"); hover for exact enrolled/active counts.
-
-### Implementation Complexity
-
-Low — `KonsultaUtilRow` already has both fields needed; simple group-by-membership-type sum.
-
-### Why This Chart Matters
-
-Every existing Konsulta chart slices by BHC (Visit Volume by BHC, Revenue per BHC) or by city-wide
-funnel stage (Enrollment Status StageFlow) — none slice by membership *segment*. Since
-`membershipType` (Formal Economy / Informal Economy / Indigent (NHTS) / Senior Citizen) is a
-policy-relevant equity dimension unique to `KonsultaUtilRow` and currently locked in the R-15 flat
-report, this chart adds an angle (which population segment is being underserved) that no
-BHC-level or funnel-level chart could ever show.
-
----
-
-
-
-## 18. Dengue Case Severity & Outcome Breakdown
-
-
-
-### Business Question
-
-Given the active dengue outbreak already flagged on the LGU Executive dashboard (2.6× baseline),
-how severe are the cases coming in — and is the hospitalization/mortality burden rising in a way
-that requires surge-capacity planning at the receiving hospitals?
-
-### Data Required
-
-`DengueRow` (file-local interface in `src/lib/reports/lgu.mock.tsx`, report R-18 "Dengue
-Surveillance Report — PIDSR format") -> fields `dengueType, outcome, hospitalized, dateOfOnset, barangay`.
-
-### Calculation
-
-Count of cases per `dengueType` (Dengue / Dengue with Warning Signs / Severe Dengue) is an
-**aggregated metric** (`count(*) grouped by dengueType`). Within each severity tier, count of cases
-per `outcome` is a nested **aggregated metric**. Hospitalization rate per severity tier is a
-**derived metric**: `count(hospitalized === true) / count(*)`, computed within each `dengueType`
-group.
-
-### Standard Visualization
-
-Stacked bar chart (severity tier on the x-axis, outcome as the stacked segments), paired with a KPI
-card for overall hospitalization rate.
-
-### D3 Recommendation
-
-Standard stacked bar chart is sufficient — no D3 needed; this is the same stacked-bar-by-category
-pattern used elsewhere on the site (Discharge Disposition), just applied to dengue severity/outcome
-fields that exist nowhere else in the schema.
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Click a severity tier to filter to its case list (barangay, onset date); this chart should sit
-directly beside the existing Epidemic Curve panel so a user can go from "volume is spiking" to "and
-here's how severe" in one glance.
-
-### Implementation Complexity
-
-Low — `DengueRow` currently only feeds the R-18 flat report; straightforward group-and-count.
-
-### Why This Chart Matters
-
-The existing Epidemic Curve shows dengue *case count* trending against a baseline — a volume
-signal. It says nothing about severity or clinical outcome, which is what actually determines
-whether receiving hospitals need to prepare surge capacity. `DengueRow`'s WHO classification and
-outcome fields are the only place in the schema with this information, and they're unused outside
-the flat R-18 report — this is the natural "how bad is it" companion chart to the existing "how
-much of it is there" Epidemic Curve, on a dataset the mock data has deliberately modeled as an
-active outbreak.
-
----
-
-
-
-## 19. Household Vulnerability Index by Barangay
-
-
-
-### Business Question
-
-Which barangays combine the highest concentrations of chronic-disease, TB, maternal, and elderly/
-child dependents *with* the lowest social-safety-net coverage (PhilHealth, 4Ps) — the barangays
-where a household-level community health worker surge would have the most impact?
-
-### Data Required
-
-`HouseholdProfileRow` (file-local interface in `src/lib/reports/lgu.mock.tsx`, report R-17
-"Community Household Health Profile") -> fields `barangay, members, philhealthCoverage, fourPsPct, withDm, withHtn, withTb, pregnant, childrenUnder5, elderly`.
-
-### Calculation
-
-For each barangay, compute per-capita burden rates as **derived metrics**: `withDm/members`,
-`withHtn/members`, `withTb/members`, `(pregnant+childrenUnder5+elderly)/members` (dependent/vulnerable
-share). `philhealthCoverage` and `fourPsPct` are used as-is (**raw data**, already expressed as
-percentages on the row). No cross-barangay aggregation — each barangay is plotted as its own row.
-
-### Standard Visualization
-
-Grouped/stacked horizontal bar chart, one bar group per barangay, combining the per-capita burden
-rates with the two coverage percentages, sorted by a simple composite (e.g. total burden rate) for
-easy scanning.
-
-### D3 Recommendation
-
-Standard grouped bar chart is sufficient — no D3 needed; with only 15 barangays and roughly 6
-metrics each, a grouped bar (or small-multiples of simple bars) is clear and doesn't need force
-layout or a matrix technique — this is squarely within what Recharts already handles well
-elsewhere on the site.
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Hover for exact per-capita rates and coverage %; click a barangay to open its full
-`HouseholdProfileRow` alongside its `BarangayMetricSet` (cross-referencing the existing choropleth
-data for that same barangay).
-
-### Implementation Complexity
-
-Low-Medium — `HouseholdProfileRow` currently only feeds the R-17 flat report; needs the per-capita
-derivation step, otherwise straightforward.
-
-### Why This Chart Matters
-
-This is the one chart in this set that combines *disease burden* (DM/HTN/TB) with *social
-determinants* (PhilHealth coverage, 4Ps enrollment) and *demographic dependency* (pregnant,
-under-5, elderly) at the same barangay grain — none of the existing per-program choropleths (NCD
-burden, TB density) or the existing SDOH metric cards (city-wide only, no barangay breakdown) do
-this. It's the household-level planning view a CHO would use to decide where to send the next
-community health worker cohort.
-
----
-
-
-
-## 20. Maternal Death Audit: Avoidability & Cause-of-Death Summary
-
-
-
-### Business Question
-
-Of the maternal deaths reviewed this period, how many were assessed as avoidable, and what are the
-recurring causes — the core quality-improvement signal a Maternal & Child Health program needs to
-act on?
-
-### Data Required
-
-`MaternalDeathRow` (file-local interface in `src/lib/reports/lgu.mock.tsx`, report R-13 "Maternal
-Death Audit Report") -> fields `causeOfDeath, ancVisits, avoidable`.
-
-### Calculation
-
-Count of cases per `avoidable` value (Yes / No / Under review) is an **aggregated metric**
-(`count(*) grouped by avoidable`, across the small case set in the reporting window). Count of
-cases per `causeOfDeath` is a separate **aggregated metric**. Average `ancVisits` among avoidable-
-"Yes" cases versus all cases is a **derived/aggregated comparison metric** (`mean(ancVisits) where avoidable="Yes"` vs. `mean(ancVisits)` overall) — a proxy check for whether inadequate antenatal
-care contact correlates with avoidable deaths.
-
-### Standard Visualization
-
-A donut chart for avoidability breakdown paired with a horizontal bar for cause-of-death frequency;
-given this report is explicitly small-N and restricted (`roleNote: "MHO and CHO only — restricted"`), a simple, honest two-panel summary is more appropriate than any dense visualization.
-
-### D3 Recommendation
-
-Standard donut + bar is sufficient — no D3 needed; with only 5 rows in the mock dataset, any denser
-visualization technique would be misleading rather than clarifying, and both chart types are
-already well-covered on the site.
-
-### Relevant D3 Technique
-
-N/A.
-
-### Interaction
-
-Click a cause-of-death segment to see the de-identified case list (`caseLabel`, `gravidaPara`,
-`ancVisits`, `recommendations`); this view should carry the same MHO/CHO-only access restriction
-the underlying report already declares.
-
-### Implementation Complexity
-
-Low — `MaternalDeathRow` already has every field needed; the only real work is respecting the
-existing role-restriction on who can view it.
-
-### Why This Chart Matters
-
-This is currently a flat, restricted report table (R-13) with no chart representation anywhere.
-It is the single most consequential quality-of-care metric in the maternal dataset, and it is
-adjacent to — but answers a different question than — the existing Maternal Complications Rate
-trend (incidence of complications among *living* patients) and Risk Stratification donut (risk
-tier of *current* patients). This chart is the outcome-of-last-resort view that closes the loop on
-"did our complications and risk-stratification programs actually prevent the worst outcome."
-
----
-
-
-
-## Charts Considered But Rejected
-
-- **Top Revenue-Generating Procedures Rollup** (from `DeptRevenueRow.topProcedures`, aggregated
-across departments) — rejected as too close to the existing Procedure Volume & Revenue Treemap
-on the Clinical dashboard (`ProcedureNode`, category → procedure, with volume/revenue/
-avgRevenuePerCase already shown). A cross-department rollup of the same underlying concept
-(procedure revenue) didn't clear the bar for a "meaningfully different angle."
-- **TB Quarterly (NTP Form 6) Indicator Chart** (from `TbQuarterlyRow`, section × indicator ×
-quarter) — rejected because the TB dashboard already covers case notification (TB Case Detection
-Rate composed chart), treatment cascade (TB Treatment Cascade StageFlow), and treatment outcomes
-(Treatment Outcomes donut) at monthly/cascade grain; re-presenting the same three concepts at
-quarterly regulatory-reporting grain wasn't a genuinely new operational question, just a
-different periodicity of the same story.
-- **Real GeoJSON/Leaflet Map of Barangay Metrics** — rejected on two grounds: it would visualize
-the same metrics the existing `BarangayChoropleth` tile-grid already shows (just with prettier
-underlying geography, not new information), and `schema.md` contains no latitude/longitude or
-boundary/geometry fields anywhere in the `Barangay` table or elsewhere — a true geographic map
-would require inventing spatial data that doesn't exist in the mock schema.
-- **Collection Trend by Agent** (from `CollectionPoint.agentA/agentB/agentC`) — rejected because
-the existing Revenue dashboard's "Collection Trend" chart is explicitly described as having a
-"switchable view," which plausibly already includes an agent-level cut of this same data; without
-being able to confirm it's excluded, proposing it risked a direct duplicate rather than a new
-angle.
-- **Individual Patient Journey Timeline / Gantt** (a per-patient chronological view spanning
-admission → labs → claims → discharge) — rejected because no table in `schema.md` links a single
-patient's admission, lab, and claim events together with a shared identifier and timestamps
-suitable for a timeline; `AdmissionRow`, `TatOutlier`, and `ClaimRow` each have their own
-independent patient-naming/ID schemes (see `schema.md`'s Known Cross-File Inconsistencies #4) and
-are not joinable in the mock data as it exists.
-- **Physician Referral Network (Force-Directed Graph)** — rejected because no physician-to-
-physician or facility-to-facility edge-list data exists in the schema; the closest table,
-`SpecialtyAcceptance`, is a flat per-specialty acceptance-rate/response-time summary with no
-relationship/edge structure, so a network diagram would require inventing connections the mock
-data doesn't contain.
-
+## Status — what is not yet migrated
+
+This is a phased migration, and this document should not be read as a claim that the whole site is
+finished. Five of the eleven hospital analytics routes are done; the rest are not.
+
+**On the shared dataset (`src/lib/data/hospital/**`), with the shared filter bar and reconciled
+figures:** Executive Overview, Performance Analysis, Financial Analysis, Claims Analysis, Patient /
+Experience Analysis. Every number on these five pages comes from `derive.ts`, so they agree with each
+other by construction.
+
+**Still on legacy per-file mock data (`src/lib/analytics/**`), grouped under the "Detail" tier in the
+nav:** Clinical Analytics, Quality & Patient Safety, Laboratory Analytics, Cohort Builder, Temporal
+Pattern Analysis, Alert & Notification Center, and the New Charts preview
+(`src/components/analytics/Top20NewCharts.tsx`). These pages deliberately do **not** mount
+`HospitalFilterProvider` — a shared filter that silently changes nothing would be worse than not
+offering one — so entries 14, 15 and 19 above have no shared filtering, and their drill-downs remain
+one level deep and terminal. `schema.md` documents each of these legacy tables under "Legacy Mock Data
+(Pending Migration)", and the known cross-file inconsistencies it lists (independently declared
+`PayerSlice` / `PayerTrendPoint`, `"Emergency"` vs `"Emergency Medicine"`, `"OB-Gyne"` vs
+`"Obstetrics"`, separate physician rosters in `claims.mock.ts` / `quality.mock.ts` /
+`laboratory.mock.ts`) are still true for those pages.
+
+Known open defects on the un-migrated pages, carried forward from `chart-audit.md` rather than quietly
+dropped: the Quality HAC control chart's dot `onClick` passes a permanently empty `period` string so
+point clicks find no data, and its control limits are read from `hac[0]` and do not recompute when the
+category filter changes; the SSI funnel plot has no funnel limit curves and uses a ratio test rather
+than a confidence interval; the Laboratory TAT box plot jitters its outlier dots with `Math.random()`
+inside the render function, violating the codebase's deterministic-seeding rule; the Cohort Builder's
+results table has sorting and row-click explicitly wired to no-ops despite `ReportTable` supporting
+both; and every Laboratory KPI drawer renders the same "connect the module" placeholder.
+
+Migrating those seven routes onto the shared dataset — and folding the strongest New Charts preview
+panels (the ward occupancy × discharge-readiness heat grid and the payer × department readmission
+matrix, both marked Keep and both currently on an unlinked preview page) into real routes — is the
+next phase, not a completed one.
