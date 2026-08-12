@@ -54,11 +54,11 @@ const hierarchySections = [
 // migration (see schema.md "Legacy Mock Data"), so they intentionally sit
 // outside the shared-filter hierarchy above rather than pretending to honor it.
 const detailSections = [
-  { to: "/analytics/clinical", label: "Clinical", icon: HeartPulse },
-  { to: "/analytics/quality", label: "Quality", icon: Activity },
-  { to: "/analytics/laboratory", label: "Lab", icon: FlaskConical },
-  { to: "/analytics/cohorts", label: "Cohort Builder", icon: Users },
-  { to: "/analytics/patterns", label: "Patterns", icon: Clock },
+  //{ to: "/analytics/clinical", label: "Clinical", icon: HeartPulse },
+  //{ to: "/analytics/quality", label: "Quality", icon: Activity },
+  //{ to: "/analytics/laboratory", label: "Lab", icon: FlaskConical },
+  //{ to: "/analytics/cohorts", label: "Cohort Builder", icon: Users },
+  //{ to: "/analytics/patterns", label: "Patterns", icon: Clock },
   { to: "/analytics/alerts", label: "Alerts", icon: Bell },
   { to: "/analytics/new-charts", label: "New Charts", icon: Sparkles },
 ] as const;
