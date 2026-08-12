@@ -42,6 +42,31 @@
  * spec's "genuine multi-tier flow network" justification. Every other chart
  * uses Recharts or a hand-rolled SVG/grid component in the style already
  * established by `shared.tsx` / `lgu-shared.tsx`.
+ *
+ * CROSS-CHART FILTERING
+ * ---------------------
+ * The default export mounts its own `<Top20FilterProvider>` (see
+ * `top20-filter-context.tsx`) and a sticky `<Top20FloatingFilterHeader />`.
+ * Two dimensions are shared across enough of the 20 charts to be real:
+ *
+ *   Department -> charts 3, 5, 7, 9, 12 (rows carry `.department`)
+ *   Barangay   -> charts 14, 15, 18, 19 directly (`.barangay` / `.name`)
+ *              -> charts 13, 17 via the barangay -> BHC join, since those rows
+ *                 are keyed by `.bhc`
+ *   Geographic Overview panel (below) is the map-shaped entry point into the
+ *   barangay dimension.
+ *
+ * Charts 1, 2, 6, 8, 10, 11, 16 and 20 carry NEITHER field in their source
+ * rows (see `schema.md`), so they are deliberately left un-filtered rather than
+ * given a fabricated dimension. They keep their existing local click-to-drill.
+ * Chart 4 is keyed by `ward`, a hospital axis with no cross-chart counterpart,
+ * so it likewise stays local-only.
+ *
+ * Where a chart draws a *benchmark* reference line ("cohort median",
+ * "citywide"), that benchmark is intentionally computed over the UNFILTERED
+ * population while the plotted rows are filtered — a median of one barangay
+ * would be the point itself and would tell the reader nothing. Captions say so
+ * explicitly whenever a filter is active.
  * ========================================================================== */
 
 import * as React from "react";
@@ -67,7 +92,7 @@ import {
   YAxis,
   ZAxis,
 } from "recharts";
-import { sankey as d3Sankey, sankeyLinkHorizontal } from "d3-sankey";
+import { sankey as d3Sankey, sankeyLinkHorizontal, type SankeyGraph } from "d3-sankey";
 
 import {
   LegendDot,
@@ -81,11 +106,18 @@ import {
   php,
 } from "@/components/analytics/shared";
 import {
+  BarangayChoropleth,
   LGU_COLORS,
   StageFlow,
   choroplethColor,
+  type BarangayDatum,
   type FlowStage,
 } from "@/components/analytics/lgu-shared";
+import {
+  Top20FilterProvider,
+  Top20FloatingFilterHeader,
+  useTop20Filters,
+} from "@/components/analytics/top20-filter-context";
 import { PH_DEPARTMENT_COLORS } from "@/lib/analytics/ph-constants";
 import { getExecutiveData } from "@/lib/analytics/executive.mock";
 import { cohortPatients } from "@/lib/analytics/cohort.mock";
@@ -375,6 +407,62 @@ function DetailPanel({
         </button>
       </div>
       {children}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Global-filter affordances
+ *
+ * A panel that is currently constrained by the dashboard-wide filter must look
+ * different from a panel the user merely clicked inside of. `GlobalFilterNote`
+ * is the caption; `globalFilterRing` is the panel outline. Both use the brand
+ * token so they read as "this is the global selection", while the existing
+ * `DetailPanel` (muted) stays the local-selection language.
+ * ------------------------------------------------------------------------ */
+
+/** Ring applied to a `PanelCard` whose data is currently globally filtered. */
+const globalFilterRing = "ring-1 ring-brand/40";
+
+function GlobalFilterNote({
+  dimension,
+  value,
+  detail,
+  onClear,
+}: {
+  dimension: string;
+  value: string;
+  detail?: string;
+  onClear: () => void;
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-brand/30 bg-brand/5 px-2.5 py-1.5 text-[11px]">
+      <span className="size-2 shrink-0 rounded-full bg-brand" />
+      <span className="font-medium text-brand">
+        Filtered to {dimension}: {value}
+      </span>
+      {detail ? <span className="text-text-muted">· {detail}</span> : null}
+      <button
+        type="button"
+        onClick={onClear}
+        className="ml-auto font-medium text-text-muted underline-offset-2 hover:text-text-primary hover:underline"
+      >
+        Clear
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Honest empty state. The mock dataset is sparse enough that a real
+ * department/barangay selection can legitimately match zero rows, and silently
+ * falling back to the unfiltered data would misreport the answer.
+ */
+function NoDataForSelection({ what }: { what: string }) {
+  return (
+    <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-10 text-center">
+      <p className="text-xs font-medium text-text-secondary">No data for this selection</p>
+      <p className="mt-1 text-[11px] text-text-muted">{what}</p>
     </div>
   );
 }
@@ -699,9 +787,13 @@ function AlosByAdmissionTypeChart() {
  * ----------------------------------------------------------------------- */
 function PhysicianProductivityQuadrantChart() {
   const [selected, setSelected] = React.useState<string | null>(null);
+  const { department, setDepartment, clearDepartment } = useTop20Filters();
 
   const { points, medianCases, medianRevenue, rowsByPhysician } = React.useMemo(() => {
-    const rows = hospitalRows<PhysicianActivityRow>("physician-activity");
+    const all = hospitalRows<PhysicianActivityRow>("physician-activity");
+    // Global department filter is applied to the raw rows, BEFORE aggregation,
+    // so the bubbles and the drill-down table are the same filtered cohort.
+    const rows = department ? all.filter((r) => r.department === department) : all;
     const byPhysician = groupBy(rows, (r) => r.physician);
     const aggregated = Array.from(byPhysician.entries()).map(([physician, physicianRows]) => {
       const ordered = [...physicianRows].sort((a, b) => a.isoDate.localeCompare(b.isoDate));
@@ -719,128 +811,165 @@ function PhysicianProductivityQuadrantChart() {
         avgLos: meanBy(physicianRows, (r) => r.avgLos),
       };
     });
+    // Benchmark lines stay on the FULL roster: a two-physician department's own
+    // median would put both quadrant lines through the data and say nothing.
+    const benchmarkByPhysician = groupBy(all, (r) => r.physician);
+    const benchmark = Array.from(benchmarkByPhysician.values()).map((physicianRows) => ({
+      cases: sumBy(physicianRows, (r) => r.cases),
+      pfRevenue: sumBy(physicianRows, (r) => r.pfRevenue),
+    }));
+
     return {
       points: aggregated,
-      medianCases: median(aggregated.map((p) => p.cases)),
-      medianRevenue: median(aggregated.map((p) => p.pfRevenue)),
+      medianCases: median(benchmark.map((p) => p.cases)),
+      medianRevenue: median(benchmark.map((p) => p.pfRevenue)),
       rowsByPhysician: byPhysician,
     };
-  }, []);
+  }, [department]);
 
-  const activeRows = selected
-    ? [...(rowsByPhysician.get(selected) ?? [])].sort((a, b) => a.isoDate.localeCompare(b.isoDate))
-    : [];
   const activePoint = points.find((p) => p.physician === selected) ?? null;
+  const activeRows = activePoint
+    ? [...(rowsByPhysician.get(activePoint.physician) ?? [])].sort((a, b) =>
+        a.isoDate.localeCompare(b.isoDate),
+      )
+    : [];
 
   return (
     <PanelCard
       title="3. Physician Productivity Quadrant"
       description="Who is high-volume but low-revenue (undercoding), and who is high-revenue with a low PhilHealth approval rate?"
+      className={department ? globalFilterRing : ""}
     >
-      <ResponsiveContainer width="100%" height={300}>
-        <ScatterChart margin={{ left: 8, right: 20, top: 8, bottom: 16 }}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-          <XAxis
-            type="number"
-            dataKey="cases"
-            name="Cases"
-            tick={AXIS_TICK}
-            tickLine={false}
-            axisLine={false}
-            label={{
-              value: "Cases (12-mo sum)",
-              fontSize: 11,
-              position: "insideBottom",
-              offset: -8,
-            }}
-          />
-          <YAxis
-            type="number"
-            dataKey="pfRevenue"
-            name="PF revenue"
-            tick={AXIS_TICK}
-            tickLine={false}
-            axisLine={false}
-            width={62}
-            tickFormatter={(v: number) => php(v, { compact: true }).replace("PHP ", "")}
-            label={{ value: "PF revenue", angle: -90, fontSize: 11 }}
-          />
-          <ZAxis type="number" dataKey="approvalRate" range={[60, 460]} name="Approval rate" />
-          <ReferenceLine x={medianCases} stroke={PALETTE.neutral} strokeDasharray="4 4" />
-          <ReferenceLine y={medianRevenue} stroke={PALETTE.neutral} strokeDasharray="4 4" />
-          <Tooltip
-            cursor={{ strokeDasharray: "3 3" }}
-            contentStyle={TOOLTIP_STYLE}
-            formatter={(value: number, name: string) => {
-              if (name === "PF revenue") return [php(value, { compact: true }), name];
-              if (name === "Approval rate") return [pct(value), name];
-              return [num(value), name];
-            }}
-            labelFormatter={() => ""}
-          />
-          <Scatter
-            data={points}
-            cursor="pointer"
-            onClick={(entry) =>
-              setSelected((prev) => {
-                const name = (entry as unknown as { physician?: string }).physician ?? null;
-                return prev === name ? null : name;
-              })
-            }
-          >
-            {points.map((p) => (
-              <Cell
-                key={p.physician}
-                fill={deptColor(p.department)}
-                fillOpacity={selected && selected !== p.physician ? 0.25 : 0.75}
-              />
-            ))}
-          </Scatter>
-        </ScatterChart>
-      </ResponsiveContainer>
-
-      <p className="mt-1 text-[11px] text-text-muted">
-        Quadrant lines = cohort median cases / median PF revenue. Bubble size = most-recent-month
-        approval rate. Bottom-right = high volume, low revenue (possible undercoding).
-      </p>
-
-      {activePoint ? (
-        <DetailPanel
-          title={`${activePoint.physician} · ${activePoint.specialty}`}
-          onClear={() => setSelected(null)}
-        >
-          <div className="mb-2 grid grid-cols-2 gap-x-4 sm:grid-cols-4">
-            <StatRow label="Cases" value={num(activePoint.cases)} />
-            <StatRow label="PF revenue" value={php(activePoint.pfRevenue, { compact: true })} />
-            <StatRow label="Approval rate" value={pct(activePoint.approvalRate)} />
-            <StatRow label="Procedures" value={num(activePoint.procedures)} />
-          </div>
-          <div className="max-h-52 overflow-y-auto">
-            <table className="w-full text-[11px]">
-              <thead className="sticky top-0 bg-muted/60">
-                <tr className="text-left text-text-secondary">
-                  <th className="py-1 pr-2 font-medium">Month</th>
-                  <th className="py-1 pr-2 text-right font-medium">Cases</th>
-                  <th className="py-1 pr-2 text-right font-medium">Procedures</th>
-                  <th className="py-1 pr-2 text-right font-medium">PF revenue</th>
-                  <th className="py-1 text-right font-medium">Approval</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activeRows.map((r) => (
-                  <tr key={r.isoDate} className="border-t border-border/60">
-                    <td className="py-1 pr-2">{r.isoDate.slice(0, 7)}</td>
-                    <td className="py-1 pr-2 text-right">{num(r.cases)}</td>
-                    <td className="py-1 pr-2 text-right">{num(r.procedures)}</td>
-                    <td className="py-1 pr-2 text-right">{php(r.pfRevenue, { compact: true })}</td>
-                    <td className="py-1 text-right">{pct(r.approvalRate, 0)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </DetailPanel>
+      {department ? (
+        <GlobalFilterNote
+          dimension="department"
+          value={department}
+          detail={`${num(points.length)} physician(s) in scope`}
+          onClear={clearDepartment}
+        />
       ) : null}
+
+      {points.length === 0 ? (
+        <NoDataForSelection
+          what={`No physician-activity rows are recorded for ${department ?? "this selection"}.`}
+        />
+      ) : (
+        <>
+          <ResponsiveContainer width="100%" height={300}>
+            <ScatterChart margin={{ left: 8, right: 20, top: 8, bottom: 16 }}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <XAxis
+                type="number"
+                dataKey="cases"
+                name="Cases"
+                tick={AXIS_TICK}
+                tickLine={false}
+                axisLine={false}
+                label={{
+                  value: "Cases (12-mo sum)",
+                  fontSize: 11,
+                  position: "insideBottom",
+                  offset: -8,
+                }}
+              />
+              <YAxis
+                type="number"
+                dataKey="pfRevenue"
+                name="PF revenue"
+                tick={AXIS_TICK}
+                tickLine={false}
+                axisLine={false}
+                width={62}
+                tickFormatter={(v: number) => php(v, { compact: true }).replace("PHP ", "")}
+                label={{ value: "PF revenue", angle: -90, fontSize: 11 }}
+              />
+              <ZAxis type="number" dataKey="approvalRate" range={[60, 460]} name="Approval rate" />
+              <ReferenceLine x={medianCases} stroke={PALETTE.neutral} strokeDasharray="4 4" />
+              <ReferenceLine y={medianRevenue} stroke={PALETTE.neutral} strokeDasharray="4 4" />
+              <Tooltip
+                cursor={{ strokeDasharray: "3 3" }}
+                contentStyle={TOOLTIP_STYLE}
+                formatter={(value: number, name: string) => {
+                  if (name === "PF revenue") return [php(value, { compact: true }), name];
+                  if (name === "Approval rate") return [pct(value), name];
+                  return [num(value), name];
+                }}
+                labelFormatter={() => ""}
+              />
+              <Scatter
+                data={points}
+                cursor="pointer"
+                onClick={(entry) => {
+                  const point = entry as unknown as { physician?: string; department?: string };
+                  const name = point.physician ?? null;
+                  // Physician stays a chart-local drill (no other chart has that
+                  // field); the bubble's department — which is what its colour
+                  // encodes — propagates to the dashboard-wide filter.
+                  setSelected((prev) => (prev === name ? null : name));
+                  if (point.department) setDepartment(point.department);
+                }}
+              >
+                {points.map((p) => (
+                  <Cell
+                    key={p.physician}
+                    fill={deptColor(p.department)}
+                    fillOpacity={selected && selected !== p.physician ? 0.25 : 0.75}
+                  />
+                ))}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+
+          <p className="mt-1 text-[11px] text-text-muted">
+            Quadrant lines = {department ? "all-department" : "cohort"} median cases / median PF
+            revenue
+            {department ? " (benchmark held at the full roster)" : ""}. Bubble size =
+            most-recent-month approval rate. Bottom-right = high volume, low revenue (possible
+            undercoding). Clicking a bubble also filters the dashboard to that physician&apos;s
+            department.
+          </p>
+
+          {activePoint ? (
+            <DetailPanel
+              title={`${activePoint.physician} · ${activePoint.specialty}`}
+              onClear={() => setSelected(null)}
+            >
+              <div className="mb-2 grid grid-cols-2 gap-x-4 sm:grid-cols-4">
+                <StatRow label="Cases" value={num(activePoint.cases)} />
+                <StatRow label="PF revenue" value={php(activePoint.pfRevenue, { compact: true })} />
+                <StatRow label="Approval rate" value={pct(activePoint.approvalRate)} />
+                <StatRow label="Procedures" value={num(activePoint.procedures)} />
+              </div>
+              <div className="max-h-52 overflow-y-auto">
+                <table className="w-full text-[11px]">
+                  <thead className="sticky top-0 bg-muted/60">
+                    <tr className="text-left text-text-secondary">
+                      <th className="py-1 pr-2 font-medium">Month</th>
+                      <th className="py-1 pr-2 text-right font-medium">Cases</th>
+                      <th className="py-1 pr-2 text-right font-medium">Procedures</th>
+                      <th className="py-1 pr-2 text-right font-medium">PF revenue</th>
+                      <th className="py-1 text-right font-medium">Approval</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeRows.map((r) => (
+                      <tr key={r.isoDate} className="border-t border-border/60">
+                        <td className="py-1 pr-2">{r.isoDate.slice(0, 7)}</td>
+                        <td className="py-1 pr-2 text-right">{num(r.cases)}</td>
+                        <td className="py-1 pr-2 text-right">{num(r.procedures)}</td>
+                        <td className="py-1 pr-2 text-right">
+                          {php(r.pfRevenue, { compact: true })}
+                        </td>
+                        <td className="py-1 text-right">{pct(r.approvalRate, 0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </DetailPanel>
+          ) : null}
+        </>
+      )}
     </PanelCard>
   );
 }
@@ -937,10 +1066,15 @@ function WardOccupancyHeatmap() {
  * Source: RevenueRow (R-06 `revenue-collection`)
  * ----------------------------------------------------------------------- */
 function DepartmentalArTrendChart() {
-  const [isolated, setIsolated] = React.useState<string | null>(null);
+  // This chart's pre-existing "isolate one department" state IS the department
+  // dimension, so it was promoted to the global filter rather than duplicated:
+  // legend clicks here drive every other department-keyed panel on the page.
+  const { department, setDepartment, clearDepartment } = useTop20Filters();
+  const isolated = department;
 
   const { series, departments, byDepartment } = React.useMemo(() => {
-    const rows = hospitalRows<RevenueRow>("revenue-collection");
+    const all = hospitalRows<RevenueRow>("revenue-collection");
+    const rows = department ? all.filter((r) => r.department === department) : all;
     const depts = uniq(rows.map((r) => r.department));
     const isoDates = uniq(rows.map((r) => r.isoDate)).sort();
     const labelFor = new Map<string, string>();
@@ -961,7 +1095,7 @@ function DepartmentalArTrendChart() {
       departments: depts,
       byDepartment: groupBy(rows, (r) => r.department),
     };
-  }, []);
+  }, [department]);
 
   const isolatedRows = isolated
     ? [...(byDepartment.get(isolated) ?? [])].sort((a, b) => a.isoDate.localeCompare(b.isoDate))
@@ -971,11 +1105,12 @@ function DepartmentalArTrendChart() {
     <PanelCard
       title="5. Departmental AR Trend"
       description="Which departments' uncollected receivables are trending worse month over month?"
+      className={department ? globalFilterRing : ""}
       action={
         isolated ? (
           <button
             type="button"
-            onClick={() => setIsolated(null)}
+            onClick={clearDepartment}
             className="text-[11px] font-medium text-brand underline-offset-2 hover:underline"
           >
             Show all departments
@@ -983,79 +1118,98 @@ function DepartmentalArTrendChart() {
         ) : null
       }
     >
-      <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={series} margin={{ left: 0, right: 16, top: 8, bottom: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-          <XAxis dataKey="month" tick={AXIS_TICK} tickLine={false} axisLine={false} />
-          <YAxis
-            tick={AXIS_TICK}
-            tickLine={false}
-            axisLine={false}
-            width={44}
-            tickFormatter={(v: number) => `${v}%`}
-            label={{ value: "Outstanding AR %", angle: -90, fontSize: 11 }}
-          />
-          <Tooltip
-            contentStyle={TOOLTIP_STYLE}
-            formatter={(value: number, name: string) => [pct(value), name]}
-          />
-          <Legend
-            wrapperStyle={{ fontSize: 11 }}
-            onClick={(entry) => {
-              const name = (entry as unknown as { value?: string }).value ?? null;
-              setIsolated((prev) => (prev === name ? null : name));
-            }}
-          />
-          {departments.map((dept) => (
-            <Line
-              key={dept}
-              type="monotone"
-              dataKey={dept}
-              stroke={deptColor(dept)}
-              strokeWidth={isolated === dept ? 2.5 : 1.6}
-              strokeOpacity={isolated && isolated !== dept ? 0.15 : 1}
-              dot={false}
-              activeDot={{ r: 4 }}
-            />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
+      {department ? (
+        <GlobalFilterNote
+          dimension="department"
+          value={department}
+          detail={`${num(isolatedRows.length)} month(s) of revenue rows`}
+          onClear={clearDepartment}
+        />
+      ) : null}
 
-      {isolated ? (
-        <DetailPanel title={`${isolated} · 12-month AR detail`} onClear={() => setIsolated(null)}>
-          <div className="max-h-52 overflow-y-auto">
-            <table className="w-full text-[11px]">
-              <thead className="sticky top-0 bg-muted/60">
-                <tr className="text-left text-text-secondary">
-                  <th className="py-1 pr-2 font-medium">Month</th>
-                  <th className="py-1 pr-2 text-right font-medium">Gross charges</th>
-                  <th className="py-1 pr-2 text-right font-medium">Outstanding AR</th>
-                  <th className="py-1 text-right font-medium">AR %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isolatedRows.map((r) => (
-                  <tr key={r.isoDate} className="border-t border-border/60">
-                    <td className="py-1 pr-2">{r.month}</td>
-                    <td className="py-1 pr-2 text-right">
-                      {php(r.grossCharges, { compact: true })}
-                    </td>
-                    <td className="py-1 pr-2 text-right">
-                      {php(r.outstandingAr, { compact: true })}
-                    </td>
-                    <td className="py-1 text-right">
-                      {pct(safeRate(r.outstandingAr, r.grossCharges))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </DetailPanel>
+      {departments.length === 0 ? (
+        <NoDataForSelection
+          what={`No revenue-collection rows are recorded for ${department ?? "this selection"}.`}
+        />
       ) : (
-        <p className="mt-2 text-[11px] text-text-muted">
-          Click a legend entry to isolate one department&apos;s line and open its 12-month detail.
-        </p>
+        <>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={series} margin={{ left: 0, right: 16, top: 8, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <XAxis dataKey="month" tick={AXIS_TICK} tickLine={false} axisLine={false} />
+              <YAxis
+                tick={AXIS_TICK}
+                tickLine={false}
+                axisLine={false}
+                width={44}
+                tickFormatter={(v: number) => `${v}%`}
+                label={{ value: "Outstanding AR %", angle: -90, fontSize: 11 }}
+              />
+              <Tooltip
+                contentStyle={TOOLTIP_STYLE}
+                formatter={(value: number, name: string) => [pct(value), name]}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: 11 }}
+                onClick={(entry) => {
+                  const name = (entry as unknown as { value?: string }).value ?? null;
+                  // Legend entries ARE departments, so a click sets the global filter.
+                  setDepartment(name && name !== department ? name : null);
+                }}
+              />
+              {departments.map((dept) => (
+                <Line
+                  key={dept}
+                  type="monotone"
+                  dataKey={dept}
+                  stroke={deptColor(dept)}
+                  strokeWidth={isolated === dept ? 2.5 : 1.6}
+                  strokeOpacity={isolated && isolated !== dept ? 0.15 : 1}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+
+          {isolated ? (
+            <DetailPanel title={`${isolated} · 12-month AR detail`} onClear={clearDepartment}>
+              <div className="max-h-52 overflow-y-auto">
+                <table className="w-full text-[11px]">
+                  <thead className="sticky top-0 bg-muted/60">
+                    <tr className="text-left text-text-secondary">
+                      <th className="py-1 pr-2 font-medium">Month</th>
+                      <th className="py-1 pr-2 text-right font-medium">Gross charges</th>
+                      <th className="py-1 pr-2 text-right font-medium">Outstanding AR</th>
+                      <th className="py-1 text-right font-medium">AR %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {isolatedRows.map((r) => (
+                      <tr key={r.isoDate} className="border-t border-border/60">
+                        <td className="py-1 pr-2">{r.month}</td>
+                        <td className="py-1 pr-2 text-right">
+                          {php(r.grossCharges, { compact: true })}
+                        </td>
+                        <td className="py-1 pr-2 text-right">
+                          {php(r.outstandingAr, { compact: true })}
+                        </td>
+                        <td className="py-1 text-right">
+                          {pct(safeRate(r.outstandingAr, r.grossCharges))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </DetailPanel>
+          ) : (
+            <p className="mt-2 text-[11px] text-text-muted">
+              Click a legend entry to isolate one department&apos;s line and open its 12-month
+              detail — the same click filters every other department-keyed panel on this page.
+            </p>
+          )}
+        </>
       )}
     </PanelCard>
   );
@@ -1217,9 +1371,13 @@ function RemittanceBatchTrackerChart() {
  * ----------------------------------------------------------------------- */
 function ClaimsReimbursementStructureChart() {
   const [selected, setSelected] = React.useState<string | null>(null);
+  const { department, clearDepartment } = useTop20Filters();
 
   const rows = React.useMemo(() => {
-    const claims = hospitalRows<ClaimRow>("philhealth-claims-register");
+    const all = hospitalRows<ClaimRow>("philhealth-claims-register");
+    // `ClaimRow.department` exists, so the CR1/CR2/patient-share split is
+    // recomputed from the department's own claims — not just recoloured.
+    const claims = department ? all.filter((r) => r.department === department) : all;
     return Array.from(groupBy(claims, (r) => r.caseType).entries()).map(([caseType, group]) => {
       const cr1 = sumBy(group, (r) => r.cr1);
       const cr2 = sumBy(group, (r) => r.cr2);
@@ -1236,7 +1394,7 @@ function ClaimsReimbursementStructureChart() {
         patientSharePct: safeRate(patientShare, total),
       };
     });
-  }, []);
+  }, [department]);
 
   const active = rows.find((r) => r.caseType === selected) ?? null;
 
@@ -1244,82 +1402,102 @@ function ClaimsReimbursementStructureChart() {
     <PanelCard
       title="7. Claims Reimbursement Structure by Case Type"
       description="How much of each case type's charge is covered by CR1 + CR2 versus left as patient out-of-pocket?"
+      className={department ? globalFilterRing : ""}
     >
-      <ResponsiveContainer width="100%" height={260}>
-        <BarChart
-          data={rows}
-          layout="vertical"
-          stackOffset="expand"
-          margin={{ left: 8, right: 24, top: 8, bottom: 8 }}
-        >
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
-          <XAxis
-            type="number"
-            tick={AXIS_TICK}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
-          />
-          <YAxis
-            type="category"
-            dataKey="caseType"
-            width={100}
-            tick={AXIS_TICK}
-            tickLine={false}
-            axisLine={false}
-          />
-          <Tooltip
-            contentStyle={TOOLTIP_STYLE}
-            cursor={{ fill: "var(--color-muted)", fillOpacity: 0.4 }}
-            formatter={(value: number, name: string) => [php(value, { compact: true }), name]}
-          />
-          <Legend wrapperStyle={{ fontSize: 11 }} />
-          {(
-            [
-              ["cr1", "CR1", PALETTE.philhealth],
-              ["cr2", "CR2", PALETTE.brandLight],
-              ["patientShare", "Patient share", PALETTE.warning],
-            ] as const
-          ).map(([key, label, color]) => (
-            <Bar
-              key={key}
-              dataKey={key}
-              name={label}
-              stackId="structure"
-              fill={color}
-              cursor="pointer"
-              onClick={(entry) => {
-                const caseType = (entry as unknown as { caseType?: string }).caseType ?? null;
-                setSelected((prev) => (prev === caseType ? null : caseType));
-              }}
-            />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
+      {department ? (
+        <GlobalFilterNote
+          dimension="department"
+          value={department}
+          detail={`${num(sumBy(rows, (r) => r.claims))} claim(s) in scope`}
+          onClear={clearDepartment}
+        />
+      ) : null}
 
-      {active ? (
-        <DetailPanel
-          title={`${active.caseType} · ${num(active.claims)} claims`}
-          onClear={() => setSelected(null)}
-        >
-          <StatRow label="Gross charges" value={php(active.grossCharges, { compact: true })} />
-          <StatRow
-            label="CR1"
-            value={`${php(active.cr1, { compact: true })} · ${pct(safeRate(active.cr1, active.total))}`}
-          />
-          <StatRow
-            label="CR2"
-            value={`${php(active.cr2, { compact: true })} · ${pct(safeRate(active.cr2, active.total))}`}
-          />
-          <StatRow
-            label="Patient share"
-            value={`${php(active.patientShare, { compact: true })} · ${pct(active.patientSharePct)}`}
-          />
-        </DetailPanel>
+      {rows.length === 0 ? (
+        <NoDataForSelection
+          what={`No PhilHealth claims are registered for ${department ?? "this selection"}.`}
+        />
       ) : (
-        <p className="mt-2 text-[11px] text-text-muted">
-          Click a segment for exact PHP amounts and out-of-pocket exposure for that case type.
-        </p>
+        <>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart
+              data={rows}
+              layout="vertical"
+              stackOffset="expand"
+              margin={{ left: 8, right: 24, top: 8, bottom: 8 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
+              <XAxis
+                type="number"
+                tick={AXIS_TICK}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
+              />
+              <YAxis
+                type="category"
+                dataKey="caseType"
+                width={100}
+                tick={AXIS_TICK}
+                tickLine={false}
+                axisLine={false}
+              />
+              <Tooltip
+                contentStyle={TOOLTIP_STYLE}
+                cursor={{ fill: "var(--color-muted)", fillOpacity: 0.4 }}
+                formatter={(value: number, name: string) => [php(value, { compact: true }), name]}
+              />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              {(
+                [
+                  ["cr1", "CR1", PALETTE.philhealth],
+                  ["cr2", "CR2", PALETTE.brandLight],
+                  ["patientShare", "Patient share", PALETTE.warning],
+                ] as const
+              ).map(([key, label, color]) => (
+                <Bar
+                  key={key}
+                  dataKey={key}
+                  name={label}
+                  stackId="structure"
+                  fill={color}
+                  cursor="pointer"
+                  onClick={(entry) => {
+                    const caseType = (entry as unknown as { caseType?: string }).caseType ?? null;
+                    setSelected((prev) => (prev === caseType ? null : caseType));
+                  }}
+                />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+
+          {active ? (
+            <DetailPanel
+              title={`${active.caseType} · ${num(active.claims)} claims`}
+              onClear={() => setSelected(null)}
+            >
+              <StatRow label="Gross charges" value={php(active.grossCharges, { compact: true })} />
+              <StatRow
+                label="CR1"
+                value={`${php(active.cr1, { compact: true })} · ${pct(safeRate(active.cr1, active.total))}`}
+              />
+              <StatRow
+                label="CR2"
+                value={`${php(active.cr2, { compact: true })} · ${pct(safeRate(active.cr2, active.total))}`}
+              />
+              <StatRow
+                label="Patient share"
+                value={`${php(active.patientShare, { compact: true })} · ${pct(active.patientSharePct)}`}
+              />
+            </DetailPanel>
+          ) : (
+            <p className="mt-2 text-[11px] text-text-muted">
+              Click a segment for exact PHP amounts and out-of-pocket exposure for that case type.
+              Case type is not a cross-chart dimension, so this click stays local — the panel
+              follows the global Department filter instead.
+            </p>
+          )}
+        </>
       )}
     </PanelCard>
   );
@@ -1462,9 +1640,11 @@ const GENERIC_SUBSTITUTION_TARGET = 80; // judgment call — no target field exi
 
 function FormularySubstitutionChart() {
   const [selected, setSelected] = React.useState<string | null>(null);
+  const { department, setDepartment, clearDepartment } = useTop20Filters();
 
   const { drugs, byDrug } = React.useMemo(() => {
-    const rows = hospitalRows<FormularyRow>("formulary-compliance");
+    const all = hospitalRows<FormularyRow>("formulary-compliance");
+    const rows = department ? all.filter((r) => r.department === department) : all;
     const grouped = groupBy(rows, (r) => r.generic);
     const aggregated = Array.from(grouped.entries())
       .map(([generic, group]) => {
@@ -1482,7 +1662,7 @@ function FormularySubstitutionChart() {
       })
       .sort((a, b) => a.percentGeneric - b.percentGeneric);
     return { drugs: aggregated, byDrug: grouped };
-  }, []);
+  }, [department]);
 
   const activeRows = selected
     ? [...(byDrug.get(selected) ?? [])].sort((a, b) => a.percentGeneric - b.percentGeneric)
@@ -1492,102 +1672,147 @@ function FormularySubstitutionChart() {
     <PanelCard
       title="9. Formulary Generic-Substitution Rate by Drug"
       description="Which drugs have the worst generic-substitution compliance, so P&T knows where to enforce the formulary?"
+      className={department ? globalFilterRing : ""}
       action={<StatusBadge tone="warning">Target {GENERIC_SUBSTITUTION_TARGET}%</StatusBadge>}
     >
-      <ResponsiveContainer width="100%" height={280}>
-        <BarChart data={drugs} layout="vertical" margin={{ left: 8, right: 24, top: 8, bottom: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
-          <XAxis
-            type="number"
-            domain={[0, 100]}
-            tick={AXIS_TICK}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(v: number) => `${v}%`}
-          />
-          <YAxis
-            type="category"
-            dataKey="generic"
-            width={110}
-            tick={AXIS_TICK}
-            tickLine={false}
-            axisLine={false}
-          />
-          <Tooltip
-            contentStyle={TOOLTIP_STYLE}
-            cursor={{ fill: "var(--color-muted)", fillOpacity: 0.4 }}
-            formatter={(value: number, _name, item) => {
-              const payload = (
-                item as { payload?: { orders?: number; inNf?: boolean; brands?: string } }
-              ).payload;
-              return [
-                `${pct(value)} generic · ${num(payload?.orders ?? 0)} orders · ${
-                  payload?.inNf ? "in National Formulary" : "not in NF"
-                } · brands: ${payload?.brands ?? "—"}`,
-                "Generic rate",
-              ];
-            }}
-          />
-          <ReferenceLine
-            x={GENERIC_SUBSTITUTION_TARGET}
-            stroke={PALETTE.neutral}
-            strokeDasharray="4 4"
-            label={{ value: "Target", fontSize: 11, position: "top" }}
-          />
-          <Bar
-            dataKey="percentGeneric"
-            radius={[0, 4, 4, 0]}
-            cursor="pointer"
-            onClick={(entry) => {
-              const generic = (entry as unknown as { generic?: string }).generic ?? null;
-              setSelected((prev) => (prev === generic ? null : generic));
-            }}
-          >
-            {drugs.map((d) => (
-              <Cell
-                key={d.generic}
-                fill={
-                  d.percentGeneric < GENERIC_SUBSTITUTION_TARGET ? PALETTE.danger : PALETTE.success
-                }
-                fillOpacity={selected && selected !== d.generic ? 0.3 : 0.85}
-              />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+      {department ? (
+        <GlobalFilterNote
+          dimension="department"
+          value={department}
+          detail={`${num(drugs.length)} generic(s) prescribed`}
+          onClear={clearDepartment}
+        />
+      ) : null}
 
-      {selected ? (
-        <DetailPanel title={`${selected} · physician breakdown`} onClear={() => setSelected(null)}>
-          <div className="max-h-52 overflow-y-auto">
-            <table className="w-full text-[11px]">
-              <thead className="sticky top-0 bg-muted/60">
-                <tr className="text-left text-text-secondary">
-                  <th className="py-1 pr-2 font-medium">Physician</th>
-                  <th className="py-1 pr-2 font-medium">Department</th>
-                  <th className="py-1 pr-2 font-medium">Brand ordered</th>
-                  <th className="py-1 pr-2 text-right font-medium">Orders</th>
-                  <th className="py-1 text-right font-medium">% generic</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activeRows.map((r) => (
-                  <tr key={`${r.generic}-${r.physician}`} className="border-t border-border/60">
-                    <td className="py-1 pr-2">{r.physician}</td>
-                    <td className="py-1 pr-2">{r.department}</td>
-                    <td className="py-1 pr-2">{r.brandOrdered}</td>
-                    <td className="py-1 pr-2 text-right">{num(r.orders)}</td>
-                    <td className="py-1 text-right">{pct(r.percentGeneric, 0)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </DetailPanel>
+      {drugs.length === 0 ? (
+        <NoDataForSelection
+          what={`No formulary-compliance rows are recorded for ${department ?? "this selection"}.`}
+        />
       ) : (
-        <p className="mt-2 text-[11px] text-text-muted">
-          Sorted worst-compliance first; volume-weighted across all prescribing physicians. Click a
-          bar for the physician-level breakdown.
-        </p>
+        <>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart
+              data={drugs}
+              layout="vertical"
+              margin={{ left: 8, right: 24, top: 8, bottom: 8 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
+              <XAxis
+                type="number"
+                domain={[0, 100]}
+                tick={AXIS_TICK}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v: number) => `${v}%`}
+              />
+              <YAxis
+                type="category"
+                dataKey="generic"
+                width={110}
+                tick={AXIS_TICK}
+                tickLine={false}
+                axisLine={false}
+              />
+              <Tooltip
+                contentStyle={TOOLTIP_STYLE}
+                cursor={{ fill: "var(--color-muted)", fillOpacity: 0.4 }}
+                formatter={(value: number, _name, item) => {
+                  const payload = (
+                    item as { payload?: { orders?: number; inNf?: boolean; brands?: string } }
+                  ).payload;
+                  return [
+                    `${pct(value)} generic · ${num(payload?.orders ?? 0)} orders · ${
+                      payload?.inNf ? "in National Formulary" : "not in NF"
+                    } · brands: ${payload?.brands ?? "—"}`,
+                    "Generic rate",
+                  ];
+                }}
+              />
+              <ReferenceLine
+                x={GENERIC_SUBSTITUTION_TARGET}
+                stroke={PALETTE.neutral}
+                strokeDasharray="4 4"
+                label={{ value: "Target", fontSize: 11, position: "top" }}
+              />
+              <Bar
+                dataKey="percentGeneric"
+                radius={[0, 4, 4, 0]}
+                cursor="pointer"
+                onClick={(entry) => {
+                  const generic = (entry as unknown as { generic?: string }).generic ?? null;
+                  setSelected((prev) => (prev === generic ? null : generic));
+                }}
+              >
+                {drugs.map((d) => (
+                  <Cell
+                    key={d.generic}
+                    fill={
+                      d.percentGeneric < GENERIC_SUBSTITUTION_TARGET
+                        ? PALETTE.danger
+                        : PALETTE.success
+                    }
+                    fillOpacity={selected && selected !== d.generic ? 0.3 : 0.85}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+
+          {selected ? (
+            <DetailPanel
+              title={`${selected} · physician breakdown`}
+              onClear={() => setSelected(null)}
+            >
+              <div className="max-h-52 overflow-y-auto">
+                <table className="w-full text-[11px]">
+                  <thead className="sticky top-0 bg-muted/60">
+                    <tr className="text-left text-text-secondary">
+                      <th className="py-1 pr-2 font-medium">Physician</th>
+                      <th className="py-1 pr-2 font-medium">Department</th>
+                      <th className="py-1 pr-2 font-medium">Brand ordered</th>
+                      <th className="py-1 pr-2 text-right font-medium">Orders</th>
+                      <th className="py-1 text-right font-medium">% generic</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeRows.map((r) => (
+                      <tr key={`${r.generic}-${r.physician}`} className="border-t border-border/60">
+                        <td className="py-1 pr-2">{r.physician}</td>
+                        <td className="py-1 pr-2">
+                          {/* The one genuinely department-shaped element in this chart. */}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDepartment(r.department === department ? null : r.department)
+                            }
+                            className={cn(
+                              "underline-offset-2 hover:underline",
+                              r.department === department
+                                ? "font-medium text-brand"
+                                : "text-inherit",
+                            )}
+                            title={`Filter the dashboard to ${r.department}`}
+                          >
+                            {r.department}
+                          </button>
+                        </td>
+                        <td className="py-1 pr-2">{r.brandOrdered}</td>
+                        <td className="py-1 pr-2 text-right">{num(r.orders)}</td>
+                        <td className="py-1 text-right">{pct(r.percentGeneric, 0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </DetailPanel>
+          ) : (
+            <p className="mt-2 text-[11px] text-text-muted">
+              Sorted worst-compliance first; volume-weighted across all prescribing physicians.
+              Click a bar for the physician-level breakdown, then a department name in that table to
+              filter the whole dashboard.
+            </p>
+          )}
+        </>
       )}
     </PanelCard>
   );
@@ -1888,12 +2113,18 @@ const LOW_CONFIDENCE_N = 8; // judgment call — cells below this N are flagged
 
 function ReadmissionMatrixChart() {
   const [selected, setSelected] = React.useState<{ row: number; col: number } | null>(null);
+  const { department, setDepartment, clearDepartment } = useTop20Filters();
 
-  const { payers, departments, matrix, cells } = React.useMemo(() => {
-    const payerList = uniq(cohortPatients.map((p) => p.payer)).sort();
-    const deptList = uniq(cohortPatients.map((p) => p.department)).sort();
+  const { payers, departments, matrix, cells, patients } = React.useMemo(() => {
+    // CohortPatient carries `.department`, so the whole matrix (rates, sample
+    // sizes, low-confidence flags) is recomputed on the filtered cohort.
+    const cohort = department
+      ? cohortPatients.filter((p) => p.department === department)
+      : cohortPatients;
+    const payerList = uniq(cohort.map((p) => p.payer)).sort();
+    const deptList = uniq(cohort.map((p) => p.department)).sort();
     const stats = new Map<string, { n: number; readmitted: number }>();
-    for (const p of cohortPatients) {
+    for (const p of cohort) {
       const key = `${p.payer}|${p.department}`;
       const current = stats.get(key) ?? { n: 0, readmitted: 0 };
       current.n += 1;
@@ -1918,8 +2149,14 @@ function ReadmissionMatrixChart() {
       }),
     );
 
-    return { payers: payerList, departments: deptList, matrix: grid, cells: stats };
-  }, []);
+    return {
+      payers: payerList,
+      departments: deptList,
+      matrix: grid,
+      cells: stats,
+      patients: cohort,
+    };
+  }, [department]);
 
   const activePayer = selected ? (payers[selected.row] ?? null) : null;
   const activeDept = selected ? (departments[selected.col] ?? null) : null;
@@ -1927,70 +2164,93 @@ function ReadmissionMatrixChart() {
     activePayer && activeDept ? (cells.get(`${activePayer}|${activeDept}`) ?? null) : null;
   const activePatients =
     activePayer && activeDept
-      ? cohortPatients.filter((p) => p.payer === activePayer && p.department === activeDept)
+      ? patients.filter((p) => p.payer === activePayer && p.department === activeDept)
       : [];
 
   return (
     <PanelCard
       title="12. Readmission Rate Matrix: Payer × Department"
       description="Are 30-day readmissions concentrated in specific payer-and-department combinations?"
+      className={department ? globalFilterRing : ""}
     >
-      <ValueHeatGrid
-        rowLabels={payers}
-        columns={departments}
-        matrix={matrix}
-        domain={[0, 40]}
-        rowLabelWidth="10rem"
-        minCellWidth="2.4rem"
-        minGridWidth={620}
-        onCellClick={(row, col) =>
-          setSelected((prev) => (prev?.row === row && prev?.col === col ? null : { row, col }))
-        }
-        selected={selected}
-        legend={
-          <RampLegend
-            from="0% readmitted"
-            to="40%+"
-            note={`dashed outline = fewer than ${LOW_CONFIDENCE_N} patients (low confidence)`}
-          />
-        }
-      />
+      {department ? (
+        <GlobalFilterNote
+          dimension="department"
+          value={department}
+          detail={`${num(patients.length)} cohort patient(s)`}
+          onClear={clearDepartment}
+        />
+      ) : null}
 
-      {activeStat && activePayer && activeDept ? (
-        <DetailPanel title={`${activePayer} · ${activeDept}`} onClear={() => setSelected(null)}>
-          <StatRow label="Patients in cohort" value={num(activeStat.n)} />
-          <StatRow label="Readmitted within 30 days" value={num(activeStat.readmitted)} />
-          <StatRow
-            label="Readmission rate"
-            value={pct(safeRate(activeStat.readmitted, activeStat.n))}
-          />
-          <div className="mt-2 max-h-44 overflow-y-auto">
-            <table className="w-full text-[11px]">
-              <thead className="sticky top-0 bg-muted/60">
-                <tr className="text-left text-text-secondary">
-                  <th className="py-1 pr-2 font-medium">Patient</th>
-                  <th className="py-1 pr-2 font-medium">Diagnosis</th>
-                  <th className="py-1 pr-2 font-medium">Admission type</th>
-                  <th className="py-1 text-right font-medium">Readmitted</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activePatients.slice(0, 40).map((p) => (
-                  <tr key={p.patientId} className="border-t border-border/60">
-                    <td className="py-1 pr-2">{p.name}</td>
-                    <td className="py-1 pr-2">{p.diagnosisDesc}</td>
-                    <td className="py-1 pr-2">{p.admissionType}</td>
-                    <td className="py-1 text-right">{p.readmitted30d ? "Yes" : "No"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </DetailPanel>
+      {payers.length === 0 || departments.length === 0 ? (
+        <NoDataForSelection
+          what={`No cohort patients are recorded for ${department ?? "this selection"}.`}
+        />
       ) : (
-        <p className="mt-2 text-[11px] text-text-muted">
-          Cell number = readmission rate (%). Click a cell for its sample size and patient list.
-        </p>
+        <>
+          <ValueHeatGrid
+            rowLabels={payers}
+            columns={departments}
+            matrix={matrix}
+            domain={[0, 40]}
+            rowLabelWidth="10rem"
+            minCellWidth="2.4rem"
+            minGridWidth={620}
+            onCellClick={(row, col) => {
+              setSelected((prev) => (prev?.row === row && prev?.col === col ? null : { row, col }));
+              // Columns ARE departments — clicking a cell promotes that column
+              // to the dashboard-wide filter.
+              const dept = departments[col];
+              if (dept) setDepartment(dept);
+            }}
+            selected={selected}
+            legend={
+              <RampLegend
+                from="0% readmitted"
+                to="40%+"
+                note={`dashed outline = fewer than ${LOW_CONFIDENCE_N} patients (low confidence)`}
+              />
+            }
+          />
+
+          {activeStat && activePayer && activeDept ? (
+            <DetailPanel title={`${activePayer} · ${activeDept}`} onClear={() => setSelected(null)}>
+              <StatRow label="Patients in cohort" value={num(activeStat.n)} />
+              <StatRow label="Readmitted within 30 days" value={num(activeStat.readmitted)} />
+              <StatRow
+                label="Readmission rate"
+                value={pct(safeRate(activeStat.readmitted, activeStat.n))}
+              />
+              <div className="mt-2 max-h-44 overflow-y-auto">
+                <table className="w-full text-[11px]">
+                  <thead className="sticky top-0 bg-muted/60">
+                    <tr className="text-left text-text-secondary">
+                      <th className="py-1 pr-2 font-medium">Patient</th>
+                      <th className="py-1 pr-2 font-medium">Diagnosis</th>
+                      <th className="py-1 pr-2 font-medium">Admission type</th>
+                      <th className="py-1 text-right font-medium">Readmitted</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activePatients.slice(0, 40).map((p) => (
+                      <tr key={p.patientId} className="border-t border-border/60">
+                        <td className="py-1 pr-2">{p.name}</td>
+                        <td className="py-1 pr-2">{p.diagnosisDesc}</td>
+                        <td className="py-1 pr-2">{p.admissionType}</td>
+                        <td className="py-1 text-right">{p.readmitted30d ? "Yes" : "No"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </DetailPanel>
+          ) : (
+            <p className="mt-2 text-[11px] text-text-muted">
+              Cell number = readmission rate (%). Click a cell for its sample size and patient list
+              — and to filter the dashboard to that cell&apos;s department.
+            </p>
+          )}
+        </>
       )}
     </PanelCard>
   );
@@ -1999,6 +2259,112 @@ function ReadmissionMatrixChart() {
 /* ==========================================================================
  * SECTION 2 — LGU / PUBLIC HEALTH ANALYTICS (charts 13-20)
  * ========================================================================== */
+
+/* -------------------------------------------------------------------------
+ * G. Geographic Overview — Barangay Risk & Burden
+ *
+ * The "geographic map" requirement, solved the way the rest of this codebase
+ * already solves it. There is no GeoJSON, boundary file or lat/long anywhere in
+ * the project (`schema.md`'s Barangay table has no geometry columns) and
+ * external map APIs are out of scope, so this reuses `BarangayChoropleth` from
+ * `lgu-shared.tsx` — the stylized tile grid the LGU dashboards already ship —
+ * rather than inventing a second, inconsistent geographic component.
+ *
+ * The tile value is chart 19's household vulnerability composite, verbatim:
+ * (diabetes + hypertension + TB + dependents) as a % of barangay members. It
+ * was picked over chart 15's NCD index because it is already a single 0-100
+ * number per barangay — exactly `BarangayDatum.value`'s shape — so the panel
+ * adds no new blended index of its own, and because it covers all 15 barangays.
+ * ----------------------------------------------------------------------- */
+function GeographicOverviewPanel() {
+  const { barangay, setBarangay, clearBarangay, bhcForBarangay } = useTop20Filters();
+
+  const { tiles, profiles, alertThreshold } = React.useMemo(() => {
+    const raw = lguRows<HouseholdProfileRow>("community-household-health-profile");
+    const scored = raw.map((r) => {
+      const dmRate = safeRate(r.withDm, r.members);
+      const htnRate = safeRate(r.withHtn, r.members);
+      const tbRate = safeRate(r.withTb, r.members);
+      const dependentRate = safeRate(r.pregnant + r.childrenUnder5 + r.elderly, r.members);
+      return {
+        row: r,
+        burden: Math.round((dmRate + htnRate + tbRate + dependentRate) * 100) / 100,
+      };
+    });
+
+    // Top-quartile burden gets the choropleth's critical flag (red outline).
+    const ranked = [...scored].sort((a, b) => b.burden - a.burden);
+    const cutIndex = Math.max(0, Math.ceil(ranked.length / 4) - 1);
+    const threshold = ranked[cutIndex]?.burden ?? Number.POSITIVE_INFINITY;
+
+    const data: BarangayDatum[] = scored.map((s) => ({
+      id: `brgy-tile-${s.row.barangay.toLowerCase().replace(/\s+/g, "-")}`,
+      name: s.row.barangay,
+      value: s.burden,
+      display: pct(s.burden, 1),
+      alert: s.burden >= threshold,
+    }));
+
+    const index = new Map<string, HouseholdProfileRow>();
+    for (const s of scored) index.set(s.row.barangay, s.row);
+
+    return { tiles: data, profiles: index, alertThreshold: threshold };
+  }, []);
+
+  const selectedProfile = barangay ? (profiles.get(barangay) ?? null) : null;
+  const selectedTile = barangay ? (tiles.find((t) => t.name === barangay) ?? null) : null;
+  const selectedBhc = bhcForBarangay(barangay);
+
+  return (
+    <PanelCard
+      title="Geographic Overview — Barangay Risk & Burden"
+      description="Where in the city does household health vulnerability concentrate — and which BHC catchment owns it?"
+      className={barangay ? globalFilterRing : ""}
+      action={
+        barangay ? (
+          <StatusBadge tone="warning">Selected: {barangay}</StatusBadge>
+        ) : (
+          <StatusBadge>15 barangays · 5 BHC catchments</StatusBadge>
+        )
+      }
+    >
+      {barangay ? (
+        <GlobalFilterNote
+          dimension="barangay"
+          value={barangay}
+          {...(selectedBhc ? { detail: `served by ${selectedBhc}` } : {})}
+          onClear={clearBarangay}
+        />
+      ) : null}
+
+      <BarangayChoropleth data={tiles} onSelect={(d) => setBarangay(d.name)} />
+
+      <p className="mt-2 text-[11px] text-text-muted">
+        Tile shade = household vulnerability index (diabetes + hypertension + TB + dependents, as a
+        share of barangay members — the same composite as chart 19). Red-outlined tiles are the
+        top-quartile burden ({pct(alertThreshold, 1)} and above). Click a tile to filter every
+        barangay- and BHC-keyed panel below. Tile positions are a stylized grid, not real geography
+        — this project ships no boundary/geometry data and uses no external map service.
+      </p>
+
+      {selectedProfile && selectedTile ? (
+        <DetailPanel
+          title={`${selectedProfile.barangay} · household profile`}
+          onClear={clearBarangay}
+        >
+          <div className="grid gap-x-6 sm:grid-cols-2">
+            <StatRow label="Vulnerability index" value={pct(selectedTile.value, 2)} />
+            <StatRow label="BHC catchment" value={selectedBhc ?? "—"} />
+            <StatRow label="Households" value={num(selectedProfile.households)} />
+            <StatRow label="Members" value={num(selectedProfile.members)} />
+            <StatRow label="PhilHealth coverage" value={pct(selectedProfile.philhealthCoverage)} />
+            <StatRow label="4Ps enrollment" value={pct(selectedProfile.fourPsPct)} />
+          </div>
+        </DetailPanel>
+      ) : null}
+    </PanelCard>
+  );
+}
 
 /* -------------------------------------------------------------------------
  * 13. BHC-to-Hospital Referral Network — D3 Sankey (the one D3 chart)
@@ -2024,9 +2390,13 @@ const TIER_COLORS = [PALETTE.brand, PALETTE.hmo, PALETTE.philhealth, PALETTE.suc
 function ReferralNetworkSankey() {
   const [colorByFeedback, setColorByFeedback] = React.useState(false);
   const [selectedNode, setSelectedNode] = React.useState<string | null>(null);
+  // `ReferralRow` is keyed by BHC, not barangay, so the global barangay filter
+  // is resolved through the barangay -> BHC catchment join before it is applied.
+  const { barangay, selectedBhc, clearBarangay } = useTop20Filters();
 
   const { graph, rows, closureRate, documented } = React.useMemo(() => {
-    const referrals = lguRows<ReferralRow>("referral-network-analysis");
+    const all = lguRows<ReferralRow>("referral-network-analysis");
+    const referrals = selectedBhc ? all.filter((r) => r.bhc === selectedBhc) : all;
 
     const nodeIndex = new Map<string, SankeyNodeDatum>();
     const addNode = (tier: number, name: string) => {
@@ -2070,10 +2440,16 @@ function ReferralNetworkSankey() {
         [SANKEY_WIDTH - 1, SANKEY_HEIGHT - 8],
       ]);
 
-    const computed = layout({
-      nodes: Array.from(nodeIndex.values()).map((n) => ({ ...n })),
-      links: Array.from(linkIndex.values()).map((l) => ({ ...l })),
-    });
+    // d3-sankey is not defined on an empty graph, so an empty selection short-
+    // circuits to a zero-node layout instead of being fed to the solver.
+    const emptyGraph: SankeyGraph<SankeyNodeDatum, SankeyLinkDatum> = { nodes: [], links: [] };
+    const computed =
+      nodeIndex.size === 0
+        ? emptyGraph
+        : layout({
+            nodes: Array.from(nodeIndex.values()).map((n) => ({ ...n })),
+            links: Array.from(linkIndex.values()).map((l) => ({ ...l })),
+          });
 
     return {
       graph: computed,
@@ -2081,7 +2457,7 @@ function ReferralNetworkSankey() {
       closureRate: safeRate(withFeedback.length, documentedRows.length),
       documented: documentedRows.length,
     };
-  }, []);
+  }, [selectedBhc]);
 
   const pathGenerator = React.useMemo(
     () => sankeyLinkHorizontal<SankeyNodeDatum, SankeyLinkDatum>(),
@@ -2110,6 +2486,7 @@ function ReferralNetworkSankey() {
     <PanelCard
       title="13. BHC-to-Hospital Referral Network"
       description="Which BHCs refer to which hospitals, for what reason, with what outcome — and where does the feedback loop break?"
+      className={selectedBhc ? globalFilterRing : ""}
       action={
         <button
           type="button"
@@ -2125,137 +2502,158 @@ function ReferralNetworkSankey() {
         </button>
       }
     >
-      <div className="mb-3 flex flex-wrap gap-2">
-        <KpiChip label="Referrals" value={num(rows.length)} note="ReferralRow, R-16" />
-        <KpiChip label="Outcome documented" value={num(documented)} />
-        <KpiChip
-          label="Feedback-loop closure"
-          value={pct(closureRate)}
-          note="feedbackReceived / outcomeDocumented"
-          tone={closureRate >= 70 ? "good" : "warning"}
+      {barangay && selectedBhc ? (
+        <GlobalFilterNote
+          dimension="barangay"
+          value={barangay}
+          detail={`resolved to its BHC catchment · ${selectedBhc}`}
+          onClear={clearBarangay}
         />
-      </div>
+      ) : null}
 
-      <div className="overflow-x-auto">
-        <svg
-          viewBox={`0 0 ${SANKEY_WIDTH} ${SANKEY_HEIGHT}`}
-          width="100%"
-          height={SANKEY_HEIGHT}
-          role="img"
-          aria-label="Sankey diagram of BHC referrals through reason, receiving facility and outcome"
-        >
-          <g fill="none">
-            {graph.links.map((link, i) => {
-              const d = pathGenerator(link);
-              if (!d) return null;
-              const source = link.source as SankeyNodeDatum;
-              const target = link.target as SankeyNodeDatum;
-              const feedbackShare = link.value ? (link.feedback ?? 0) / link.value : 0;
-              const stroke = colorByFeedback
-                ? feedbackShare >= 0.5
-                  ? LGU_COLORS.vaccination
-                  : LGU_COLORS.critical
-                : TIER_COLORS[source.tier % TIER_COLORS.length];
-              const dim = !linkTouchesSelection(link);
-              return (
-                <path
-                  key={`${source.id}->${target.id}-${i}`}
-                  d={d}
-                  stroke={stroke}
-                  strokeOpacity={dim ? 0.06 : 0.32}
-                  strokeWidth={Math.max(1, link.width ?? 1)}
-                >
-                  <title>
-                    {`${source.name} → ${target.name}: ${link.value} referrals · feedback received on ${link.feedback ?? 0}`}
-                  </title>
-                </path>
-              );
-            })}
-          </g>
-          <g>
-            {graph.nodes.map((node) => {
-              const x0 = node.x0 ?? 0;
-              const x1 = node.x1 ?? 0;
-              const y0 = node.y0 ?? 0;
-              const y1 = node.y1 ?? 0;
-              const isSelected = selectedNode === node.id;
-              const labelOnLeft = node.tier === 3;
-              return (
-                <g key={node.id}>
-                  <rect
-                    x={x0}
-                    y={y0}
-                    width={Math.max(1, x1 - x0)}
-                    height={Math.max(1, y1 - y0)}
-                    fill={TIER_COLORS[node.tier % TIER_COLORS.length]}
-                    fillOpacity={selectedNode && !isSelected ? 0.3 : 0.95}
-                    className="cursor-pointer"
-                    onClick={() => setSelectedNode((prev) => (prev === node.id ? null : node.id))}
-                  >
-                    <title>{`${node.name}: ${node.value ?? 0} referrals`}</title>
-                  </rect>
-                  <text
-                    x={labelOnLeft ? x0 - 6 : x1 + 6}
-                    y={(y0 + y1) / 2}
-                    dy="0.35em"
-                    textAnchor={labelOnLeft ? "end" : "start"}
-                    fontSize={11}
-                    fill="currentColor"
-                    className="pointer-events-none fill-current text-text-secondary"
-                  >
-                    {node.name}
-                  </text>
-                </g>
-              );
-            })}
-          </g>
-        </svg>
-      </div>
-
-      <div className="mt-2 flex flex-wrap gap-3">
-        <LegendDot color={TIER_COLORS[0]} label="Tier 1 · BHC" />
-        <LegendDot color={TIER_COLORS[1]} label="Tier 2 · Referral reason" />
-        <LegendDot color={TIER_COLORS[2]} label="Tier 3 · Receiving facility" />
-        <LegendDot color={TIER_COLORS[3]} label="Tier 4 · Outcome" />
-      </div>
-
-      {selectedName ? (
-        <DetailPanel
-          title={`${selectedName} · ${num(detailRows.length)} referrals`}
-          onClear={() => setSelectedNode(null)}
-        >
-          <div className="max-h-52 overflow-y-auto">
-            <table className="w-full text-[11px]">
-              <thead className="sticky top-0 bg-muted/60">
-                <tr className="text-left text-text-secondary">
-                  <th className="py-1 pr-2 font-medium">Date</th>
-                  <th className="py-1 pr-2 font-medium">BHC</th>
-                  <th className="py-1 pr-2 font-medium">Reason</th>
-                  <th className="py-1 pr-2 font-medium">Receiving facility</th>
-                  <th className="py-1 pr-2 font-medium">Outcome</th>
-                  <th className="py-1 text-right font-medium">Feedback</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detailRows.map((r, i) => (
-                  <tr key={`${r.bhc}-${r.date}-${i}`} className="border-t border-border/60">
-                    <td className="py-1 pr-2">{r.date}</td>
-                    <td className="py-1 pr-2">{r.bhc}</td>
-                    <td className="py-1 pr-2">{r.referralReason}</td>
-                    <td className="py-1 pr-2">{r.receivingFacility}</td>
-                    <td className="py-1 pr-2">{r.outcome}</td>
-                    <td className="py-1 text-right">{r.feedbackReceived ? "Yes" : "No"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </DetailPanel>
+      {rows.length === 0 ? (
+        <NoDataForSelection
+          what={`No referrals are recorded for ${selectedBhc ?? "this selection"}.`}
+        />
       ) : (
-        <p className="mt-2 text-[11px] text-text-muted">
-          Hover a ribbon for its case count; click a node to highlight every flow through it and
-          open the referral detail table.
-        </p>
+        <>
+          <div className="mb-3 flex flex-wrap gap-2">
+            <KpiChip label="Referrals" value={num(rows.length)} note="ReferralRow, R-16" />
+            <KpiChip label="Outcome documented" value={num(documented)} />
+            <KpiChip
+              label="Feedback-loop closure"
+              value={pct(closureRate)}
+              note="feedbackReceived / outcomeDocumented"
+              tone={closureRate >= 70 ? "good" : "warning"}
+            />
+          </div>
+
+          <div className="overflow-x-auto">
+            <svg
+              viewBox={`0 0 ${SANKEY_WIDTH} ${SANKEY_HEIGHT}`}
+              width="100%"
+              height={SANKEY_HEIGHT}
+              role="img"
+              aria-label="Sankey diagram of BHC referrals through reason, receiving facility and outcome"
+            >
+              <g fill="none">
+                {graph.links.map((link, i) => {
+                  const d = pathGenerator(link);
+                  if (!d) return null;
+                  const source = link.source as SankeyNodeDatum;
+                  const target = link.target as SankeyNodeDatum;
+                  const feedbackShare = link.value ? (link.feedback ?? 0) / link.value : 0;
+                  const stroke = colorByFeedback
+                    ? feedbackShare >= 0.5
+                      ? LGU_COLORS.vaccination
+                      : LGU_COLORS.critical
+                    : TIER_COLORS[source.tier % TIER_COLORS.length];
+                  const dim = !linkTouchesSelection(link);
+                  return (
+                    <path
+                      key={`${source.id}->${target.id}-${i}`}
+                      d={d}
+                      stroke={stroke}
+                      strokeOpacity={dim ? 0.06 : 0.32}
+                      strokeWidth={Math.max(1, link.width ?? 1)}
+                    >
+                      <title>
+                        {`${source.name} → ${target.name}: ${link.value} referrals · feedback received on ${link.feedback ?? 0}`}
+                      </title>
+                    </path>
+                  );
+                })}
+              </g>
+              <g>
+                {graph.nodes.map((node) => {
+                  const x0 = node.x0 ?? 0;
+                  const x1 = node.x1 ?? 0;
+                  const y0 = node.y0 ?? 0;
+                  const y1 = node.y1 ?? 0;
+                  const isSelected = selectedNode === node.id;
+                  const labelOnLeft = node.tier === 3;
+                  return (
+                    <g key={node.id}>
+                      <rect
+                        x={x0}
+                        y={y0}
+                        width={Math.max(1, x1 - x0)}
+                        height={Math.max(1, y1 - y0)}
+                        fill={TIER_COLORS[node.tier % TIER_COLORS.length]}
+                        fillOpacity={selectedNode && !isSelected ? 0.3 : 0.95}
+                        className="cursor-pointer"
+                        onClick={() =>
+                          setSelectedNode((prev) => (prev === node.id ? null : node.id))
+                        }
+                      >
+                        <title>{`${node.name}: ${node.value ?? 0} referrals`}</title>
+                      </rect>
+                      <text
+                        x={labelOnLeft ? x0 - 6 : x1 + 6}
+                        y={(y0 + y1) / 2}
+                        dy="0.35em"
+                        textAnchor={labelOnLeft ? "end" : "start"}
+                        fontSize={11}
+                        fill="currentColor"
+                        className="pointer-events-none fill-current text-text-secondary"
+                      >
+                        {node.name}
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
+            </svg>
+          </div>
+
+          <div className="mt-2 flex flex-wrap gap-3">
+            <LegendDot color={TIER_COLORS[0]} label="Tier 1 · BHC" />
+            <LegendDot color={TIER_COLORS[1]} label="Tier 2 · Referral reason" />
+            <LegendDot color={TIER_COLORS[2]} label="Tier 3 · Receiving facility" />
+            <LegendDot color={TIER_COLORS[3]} label="Tier 4 · Outcome" />
+          </div>
+
+          {selectedName ? (
+            <DetailPanel
+              title={`${selectedName} · ${num(detailRows.length)} referrals`}
+              onClear={() => setSelectedNode(null)}
+            >
+              <div className="max-h-52 overflow-y-auto">
+                <table className="w-full text-[11px]">
+                  <thead className="sticky top-0 bg-muted/60">
+                    <tr className="text-left text-text-secondary">
+                      <th className="py-1 pr-2 font-medium">Date</th>
+                      <th className="py-1 pr-2 font-medium">BHC</th>
+                      <th className="py-1 pr-2 font-medium">Reason</th>
+                      <th className="py-1 pr-2 font-medium">Receiving facility</th>
+                      <th className="py-1 pr-2 font-medium">Outcome</th>
+                      <th className="py-1 text-right font-medium">Feedback</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailRows.map((r, i) => (
+                      <tr key={`${r.bhc}-${r.date}-${i}`} className="border-t border-border/60">
+                        <td className="py-1 pr-2">{r.date}</td>
+                        <td className="py-1 pr-2">{r.bhc}</td>
+                        <td className="py-1 pr-2">{r.referralReason}</td>
+                        <td className="py-1 pr-2">{r.receivingFacility}</td>
+                        <td className="py-1 pr-2">{r.outcome}</td>
+                        <td className="py-1 text-right">{r.feedbackReceived ? "Yes" : "No"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </DetailPanel>
+          ) : (
+            <p className="mt-2 text-[11px] text-text-muted">
+              Hover a ribbon for its case count; click a node to highlight every flow through it and
+              open the referral detail table. Nodes are BHCs, reasons, facilities and outcomes —
+              none is a barangay, so node clicks stay local; use the Geographic Overview tiles above
+              to filter this panel by catchment.
+            </p>
+          )}
+        </>
       )}
     </PanelCard>
   );
@@ -2276,9 +2674,11 @@ const ANTIGENS = [
 
 function ImmunizationCoverageMatrix() {
   const [selected, setSelected] = React.useState<{ row: number; col: number } | null>(null);
+  const { barangay, setBarangay, clearBarangay } = useTop20Filters();
 
   const { barangays, matrix, rowsByBarangay } = React.useMemo(() => {
-    const rows = lguRows<ImmunizationCoverageRow>("immunization-coverage-antigen-barangay");
+    const all = lguRows<ImmunizationCoverageRow>("immunization-coverage-antigen-barangay");
+    const rows = barangay ? all.filter((r) => r.barangay === barangay) : all;
     const weakest = (r: ImmunizationCoverageRow) => Math.min(...ANTIGENS.map(([key]) => r[key]));
     // Sorted by the derived "fully-immunized-child proxy" (weakest antigen) — most at-risk first.
     const sorted = [...rows].sort((a, b) => weakest(a) - weakest(b));
@@ -2297,7 +2697,7 @@ function ImmunizationCoverageMatrix() {
       rowsByBarangay: sorted,
       lookup: index,
     };
-  }, []);
+  }, [barangay]);
 
   const activeRow = selected ? (rowsByBarangay[selected.row] ?? null) : null;
   const activeAntigen = selected ? (ANTIGENS[selected.col] ?? null) : null;
@@ -2306,52 +2706,71 @@ function ImmunizationCoverageMatrix() {
     <PanelCard
       title="14. Immunization Coverage Matrix (Barangay × Antigen)"
       description="Which barangay is missing which specific vaccine — where does a targeted catch-up campaign go?"
+      className={barangay ? globalFilterRing : ""}
     >
-      <ValueHeatGrid
-        rowLabels={barangays}
-        columns={ANTIGENS.map(([, label]) => label)}
-        matrix={matrix}
-        domain={[60, 100]}
-        invertRamp
-        rowLabelWidth="12rem"
-        minCellWidth="2.6rem"
-        minGridWidth={520}
-        onCellClick={(row, col) =>
-          setSelected((prev) => (prev?.row === row && prev?.col === col ? null : { row, col }))
-        }
-        selected={selected}
-        legend={
-          <RampLegend
-            from="100% covered"
-            to="60% or below"
-            note="rows sorted by weakest antigen (fully-immunized-child proxy)"
-          />
-        }
-      />
+      {barangay ? (
+        <GlobalFilterNote dimension="barangay" value={barangay} onClear={clearBarangay} />
+      ) : null}
 
-      {activeRow && activeAntigen ? (
-        <DetailPanel
-          title={`${activeRow.barangay} · ${activeAntigen[1]}`}
-          onClear={() => setSelected(null)}
-        >
-          <StatRow label="Target population (0–11 mo)" value={num(activeRow.targetPopulation)} />
-          {ANTIGENS.map(([key, label]) => (
-            <StatRow
-              key={key}
-              label={label}
-              value={
-                <span className={key === activeAntigen[0] ? "text-brand" : undefined}>
-                  {pct(activeRow[key])}
-                </span>
-              }
-            />
-          ))}
-        </DetailPanel>
+      {rowsByBarangay.length === 0 ? (
+        <NoDataForSelection
+          what={`No immunization-coverage row is recorded for ${barangay ?? "this selection"}.`}
+        />
       ) : (
-        <p className="mt-2 text-[11px] text-text-muted">
-          Cell number = coverage %. Darker = worse. Click a cell for the barangay&apos;s full
-          six-antigen profile.
-        </p>
+        <>
+          <ValueHeatGrid
+            rowLabels={barangays}
+            columns={ANTIGENS.map(([, label]) => label)}
+            matrix={matrix}
+            domain={[60, 100]}
+            invertRamp
+            rowLabelWidth="12rem"
+            minCellWidth="2.6rem"
+            minGridWidth={520}
+            onCellClick={(row, col) => {
+              setSelected((prev) => (prev?.row === row && prev?.col === col ? null : { row, col }));
+              // Matrix rows ARE barangays — promote the clicked row globally.
+              const clicked = rowsByBarangay[row];
+              if (clicked) setBarangay(clicked.barangay);
+            }}
+            selected={selected}
+            legend={
+              <RampLegend
+                from="100% covered"
+                to="60% or below"
+                note="rows sorted by weakest antigen (fully-immunized-child proxy)"
+              />
+            }
+          />
+
+          {activeRow && activeAntigen ? (
+            <DetailPanel
+              title={`${activeRow.barangay} · ${activeAntigen[1]}`}
+              onClear={() => setSelected(null)}
+            >
+              <StatRow
+                label="Target population (0–11 mo)"
+                value={num(activeRow.targetPopulation)}
+              />
+              {ANTIGENS.map(([key, label]) => (
+                <StatRow
+                  key={key}
+                  label={label}
+                  value={
+                    <span className={key === activeAntigen[0] ? "text-brand" : undefined}>
+                      {pct(activeRow[key])}
+                    </span>
+                  }
+                />
+              ))}
+            </DetailPanel>
+          ) : (
+            <p className="mt-2 text-[11px] text-text-muted">
+              Cell number = coverage %. Darker = worse. Click a cell for the barangay&apos;s full
+              six-antigen profile — and to filter the dashboard to that barangay.
+            </p>
+          )}
+        </>
       )}
     </PanelCard>
   );
@@ -2363,15 +2782,20 @@ function ImmunizationCoverageMatrix() {
  * ----------------------------------------------------------------------- */
 function NcdBurdenControlChart() {
   const [selected, setSelected] = React.useState<string | null>(null);
+  const { barangay, setBarangay, clearBarangay } = useTop20Filters();
 
   const { barangays, medianIndex, medianControl } = React.useMemo(() => {
-    const data = getNcdData().barangays;
+    const all = getNcdData().barangays;
+    // `NcdBarangay.name` IS the barangay key for this chart.
+    const data = barangay ? all.filter((b) => b.name === barangay) : all;
     return {
       barangays: data,
-      medianIndex: median(data.map((b) => b.ncdIndex)),
-      medianControl: median(data.map((b) => b.controlRate)),
+      // Quadrant lines are the citywide benchmark, so they stay on all 15
+      // barangays — a one-barangay median would be the point itself.
+      medianIndex: median(all.map((b) => b.ncdIndex)),
+      medianControl: median(all.map((b) => b.controlRate)),
     };
-  }, []);
+  }, [barangay]);
 
   const active = barangays.find((b) => b.name === selected) ?? null;
 
@@ -2379,94 +2803,115 @@ function NcdBurdenControlChart() {
     <PanelCard
       title="15. NCD Burden vs. Control Bubble Chart"
       description="Which barangays combine a high NCD burden with poor treatment control — where does outreach go next?"
+      className={barangay ? globalFilterRing : ""}
     >
-      <ResponsiveContainer width="100%" height={300}>
-        <ScatterChart margin={{ left: 8, right: 20, top: 8, bottom: 16 }}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-          <XAxis
-            type="number"
-            dataKey="ncdIndex"
-            name="NCD index"
-            tick={AXIS_TICK}
-            tickLine={false}
-            axisLine={false}
-            label={{
-              value: "NCD burden index",
-              fontSize: 11,
-              position: "insideBottom",
-              offset: -8,
-            }}
-          />
-          <YAxis
-            type="number"
-            dataKey="controlRate"
-            name="Control rate"
-            tick={AXIS_TICK}
-            tickLine={false}
-            axisLine={false}
-            width={48}
-            tickFormatter={(v: number) => `${v}%`}
-            label={{ value: "Control rate", angle: -90, fontSize: 11 }}
-          />
-          <ZAxis type="number" dataKey="patientCount" range={[70, 460]} name="Patients" />
-          <ReferenceLine x={medianIndex} stroke={PALETTE.neutral} strokeDasharray="4 4" />
-          <ReferenceLine y={medianControl} stroke={PALETTE.neutral} strokeDasharray="4 4" />
-          <Tooltip
-            cursor={{ strokeDasharray: "3 3" }}
-            contentStyle={TOOLTIP_STYLE}
-            formatter={(value: number, name: string, item) => {
-              const payload = (item as { payload?: { name?: string } }).payload;
-              if (name === "NCD index")
-                return [`${value.toFixed(1)} (${payload?.name ?? ""})`, name];
-              if (name === "Control rate") return [pct(value), name];
-              return [num(value), name];
-            }}
-            labelFormatter={() => ""}
-          />
-          <Scatter
-            data={barangays}
-            cursor="pointer"
-            onClick={(entry) => {
-              const name = (entry as unknown as { name?: string }).name ?? null;
-              setSelected((prev) => (prev === name ? null : name));
-            }}
-          >
-            {barangays.map((b) => (
-              <Cell
-                key={b.id}
-                fill={
-                  b.ncdIndex >= medianIndex && b.controlRate < medianControl
-                    ? LGU_COLORS.critical
-                    : LGU_COLORS.ncd
-                }
-                fillOpacity={selected && selected !== b.name ? 0.25 : 0.75}
-              />
-            ))}
-          </Scatter>
-        </ScatterChart>
-      </ResponsiveContainer>
+      {barangay ? (
+        <GlobalFilterNote
+          dimension="barangay"
+          value={barangay}
+          detail="quadrant lines held at the citywide median"
+          onClear={clearBarangay}
+        />
+      ) : null}
 
-      <div className="mt-1 flex flex-wrap gap-3">
-        <LegendDot color={LGU_COLORS.critical} label="High burden + poor control (priority)" />
-        <LegendDot color={LGU_COLORS.ncd} label="All other barangays" />
-      </div>
-
-      {active ? (
-        <DetailPanel title={active.name} onClear={() => setSelected(null)}>
-          <StatRow label="NCD burden index" value={active.ncdIndex.toFixed(1)} />
-          <StatRow label="Hypertension prevalence" value={pct(active.htnPrevalence)} />
-          <StatRow label="Diabetes prevalence" value={pct(active.dmPrevalence)} />
-          <StatRow label="Obesity prevalence" value={pct(active.obesityPrevalence)} />
-          <StatRow label="Patients enrolled" value={num(active.patientCount)} />
-          <StatRow label="Control rate" value={pct(active.controlRate)} />
-          <StatRow label="Medication compliance" value={pct(active.medicationCompliance)} />
-          <StatRow label="Referrals" value={num(active.referralCount)} />
-        </DetailPanel>
+      {barangays.length === 0 ? (
+        <NoDataForSelection
+          what={`No NCD registry data is recorded for ${barangay ?? "this selection"}.`}
+        />
       ) : (
-        <p className="mt-2 text-[11px] text-text-muted">
-          Quadrant lines = city median burden index / median control rate. Bubble size = enrolled
-          patient count.
-        </p>
+        <>
+          <ResponsiveContainer width="100%" height={300}>
+            <ScatterChart margin={{ left: 8, right: 20, top: 8, bottom: 16 }}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <XAxis
+                type="number"
+                dataKey="ncdIndex"
+                name="NCD index"
+                tick={AXIS_TICK}
+                tickLine={false}
+                axisLine={false}
+                label={{
+                  value: "NCD burden index",
+                  fontSize: 11,
+                  position: "insideBottom",
+                  offset: -8,
+                }}
+              />
+              <YAxis
+                type="number"
+                dataKey="controlRate"
+                name="Control rate"
+                tick={AXIS_TICK}
+                tickLine={false}
+                axisLine={false}
+                width={48}
+                tickFormatter={(v: number) => `${v}%`}
+                label={{ value: "Control rate", angle: -90, fontSize: 11 }}
+              />
+              <ZAxis type="number" dataKey="patientCount" range={[70, 460]} name="Patients" />
+              <ReferenceLine x={medianIndex} stroke={PALETTE.neutral} strokeDasharray="4 4" />
+              <ReferenceLine y={medianControl} stroke={PALETTE.neutral} strokeDasharray="4 4" />
+              <Tooltip
+                cursor={{ strokeDasharray: "3 3" }}
+                contentStyle={TOOLTIP_STYLE}
+                formatter={(value: number, name: string, item) => {
+                  const payload = (item as { payload?: { name?: string } }).payload;
+                  if (name === "NCD index")
+                    return [`${value.toFixed(1)} (${payload?.name ?? ""})`, name];
+                  if (name === "Control rate") return [pct(value), name];
+                  return [num(value), name];
+                }}
+                labelFormatter={() => ""}
+              />
+              <Scatter
+                data={barangays}
+                cursor="pointer"
+                onClick={(entry) => {
+                  const name = (entry as unknown as { name?: string }).name ?? null;
+                  setSelected((prev) => (prev === name ? null : name));
+                  // Every point IS a barangay — promote it to the global filter.
+                  if (name) setBarangay(name);
+                }}
+              >
+                {barangays.map((b) => (
+                  <Cell
+                    key={b.id}
+                    fill={
+                      b.ncdIndex >= medianIndex && b.controlRate < medianControl
+                        ? LGU_COLORS.critical
+                        : LGU_COLORS.ncd
+                    }
+                    fillOpacity={selected && selected !== b.name ? 0.25 : 0.75}
+                  />
+                ))}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+
+          <div className="mt-1 flex flex-wrap gap-3">
+            <LegendDot color={LGU_COLORS.critical} label="High burden + poor control (priority)" />
+            <LegendDot color={LGU_COLORS.ncd} label="All other barangays" />
+          </div>
+
+          {active ? (
+            <DetailPanel title={active.name} onClear={() => setSelected(null)}>
+              <StatRow label="NCD burden index" value={active.ncdIndex.toFixed(1)} />
+              <StatRow label="Hypertension prevalence" value={pct(active.htnPrevalence)} />
+              <StatRow label="Diabetes prevalence" value={pct(active.dmPrevalence)} />
+              <StatRow label="Obesity prevalence" value={pct(active.obesityPrevalence)} />
+              <StatRow label="Patients enrolled" value={num(active.patientCount)} />
+              <StatRow label="Control rate" value={pct(active.controlRate)} />
+              <StatRow label="Medication compliance" value={pct(active.medicationCompliance)} />
+              <StatRow label="Referrals" value={num(active.referralCount)} />
+            </DetailPanel>
+          ) : (
+            <p className="mt-2 text-[11px] text-text-muted">
+              Quadrant lines = city median burden index / median control rate. Bubble size =
+              enrolled patient count. Clicking a bubble filters the whole dashboard to that
+              barangay.
+            </p>
+          )}
+        </>
       )}
     </PanelCard>
   );
@@ -2627,9 +3072,13 @@ function FhsisSectionRollupChart() {
  * ----------------------------------------------------------------------- */
 function KonsultaUtilizationChart() {
   const [selected, setSelected] = React.useState<string | null>(null);
+  // `KonsultaUtilRow` is keyed by BHC, so the barangay filter is resolved
+  // through the barangay -> BHC catchment join, same as chart 13.
+  const { barangay, selectedBhc, clearBarangay } = useTop20Filters();
 
   const { segments, citywide, rowsByType } = React.useMemo(() => {
-    const rows = lguRows<KonsultaUtilRow>("konsulta-enrollment-utilization");
+    const all = lguRows<KonsultaUtilRow>("konsulta-enrollment-utilization");
+    const rows = selectedBhc ? all.filter((r) => r.bhc === selectedBhc) : all;
     const grouped = groupBy(rows, (r) => r.membershipType);
     const aggregated = Array.from(grouped.entries()).map(([membershipType, group]) => {
       const enrolled = sumBy(group, (r) => r.enrolledMembers);
@@ -2641,14 +3090,16 @@ function KonsultaUtilizationChart() {
         utilization: Math.round(safeRate(active, enrolled) * 10) / 10,
       };
     });
-    const totalEnrolled = sumBy(rows, (r) => r.enrolledMembers);
-    const totalActive = sumBy(rows, (r) => r.activeVisitors);
+    // "Citywide" is a benchmark, so it stays on every BHC's rows even when the
+    // bars are filtered to one catchment.
+    const totalEnrolled = sumBy(all, (r) => r.enrolledMembers);
+    const totalActive = sumBy(all, (r) => r.activeVisitors);
     return {
       segments: aggregated,
       citywide: Math.round(safeRate(totalActive, totalEnrolled) * 10) / 10,
       rowsByType: grouped,
     };
-  }, []);
+  }, [selectedBhc]);
 
   const activeBhcRows = selected
     ? Array.from(groupBy(rowsByType.get(selected) ?? [], (r) => r.bhc).entries()).map(
@@ -2664,90 +3115,111 @@ function KonsultaUtilizationChart() {
     <PanelCard
       title="17. Konsulta Utilization Rate by Membership Type"
       description="Which PhilHealth Konsulta membership segment is under-utilizing the benefit they are enrolled in?"
+      className={selectedBhc ? globalFilterRing : ""}
       action={<StatusBadge>Citywide {pct(citywide)}</StatusBadge>}
     >
-      <ResponsiveContainer width="100%" height={260}>
-        <BarChart data={segments} margin={{ left: 0, right: 16, top: 8, bottom: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
-          <XAxis dataKey="membershipType" tick={AXIS_TICK} tickLine={false} axisLine={false} />
-          <YAxis
-            tick={AXIS_TICK}
-            tickLine={false}
-            axisLine={false}
-            width={44}
-            tickFormatter={(v: number) => `${v}%`}
-            label={{ value: "Utilization", angle: -90, fontSize: 11 }}
-          />
-          <Tooltip
-            contentStyle={TOOLTIP_STYLE}
-            cursor={{ fill: "var(--color-muted)", fillOpacity: 0.4 }}
-            formatter={(value: number, _name, item) => {
-              const payload = (
-                item as { payload?: { enrolledMembers?: number; activeVisitors?: number } }
-              ).payload;
-              return [
-                `${pct(value)} · ${num(payload?.activeVisitors ?? 0)} active of ${num(payload?.enrolledMembers ?? 0)} enrolled`,
-                "Utilization",
-              ];
-            }}
-          />
-          <ReferenceLine
-            y={citywide}
-            stroke={PALETTE.neutral}
-            strokeDasharray="4 4"
-            label={{
-              value: `Citywide ${pct(citywide, 0)}`,
-              fontSize: 11,
-              position: "insideTopRight",
-            }}
-          />
-          <Bar
-            dataKey="utilization"
-            radius={[4, 4, 0, 0]}
-            cursor="pointer"
-            onClick={(entry) => {
-              const type = (entry as unknown as { membershipType?: string }).membershipType ?? null;
-              setSelected((prev) => (prev === type ? null : type));
-            }}
-          >
-            {segments.map((s) => (
-              <Cell
-                key={s.membershipType}
-                fill={s.utilization < citywide ? PALETTE.danger : PALETTE.success}
-                fillOpacity={selected && selected !== s.membershipType ? 0.3 : 0.85}
-              />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+      {barangay && selectedBhc ? (
+        <GlobalFilterNote
+          dimension="barangay"
+          value={barangay}
+          detail={`resolved to its BHC catchment · ${selectedBhc}`}
+          onClear={clearBarangay}
+        />
+      ) : null}
 
-      {selected ? (
-        <DetailPanel title={`${selected} · BHC breakdown`} onClear={() => setSelected(null)}>
-          <table className="w-full text-[11px]">
-            <thead>
-              <tr className="text-left text-text-secondary">
-                <th className="py-1 pr-2 font-medium">BHC</th>
-                <th className="py-1 pr-2 text-right font-medium">Enrolled</th>
-                <th className="py-1 pr-2 text-right font-medium">Active visitors</th>
-                <th className="py-1 text-right font-medium">Utilization</th>
-              </tr>
-            </thead>
-            <tbody>
-              {activeBhcRows.map((r) => (
-                <tr key={r.bhc} className="border-t border-border/60">
-                  <td className="py-1 pr-2">{r.bhc}</td>
-                  <td className="py-1 pr-2 text-right">{num(r.enrolled)}</td>
-                  <td className="py-1 pr-2 text-right">{num(r.active)}</td>
-                  <td className="py-1 text-right">{pct(r.utilization)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </DetailPanel>
+      {segments.length === 0 ? (
+        <NoDataForSelection
+          what={`No Konsulta enrolment rows are recorded for ${selectedBhc ?? "this selection"}.`}
+        />
       ) : (
-        <p className="mt-2 text-[11px] text-text-muted">
-          Click a membership-type bar for its BHC-level enrollment and utilization breakdown.
-        </p>
+        <>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={segments} margin={{ left: 0, right: 16, top: 8, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
+              <XAxis dataKey="membershipType" tick={AXIS_TICK} tickLine={false} axisLine={false} />
+              <YAxis
+                tick={AXIS_TICK}
+                tickLine={false}
+                axisLine={false}
+                width={44}
+                tickFormatter={(v: number) => `${v}%`}
+                label={{ value: "Utilization", angle: -90, fontSize: 11 }}
+              />
+              <Tooltip
+                contentStyle={TOOLTIP_STYLE}
+                cursor={{ fill: "var(--color-muted)", fillOpacity: 0.4 }}
+                formatter={(value: number, _name, item) => {
+                  const payload = (
+                    item as { payload?: { enrolledMembers?: number; activeVisitors?: number } }
+                  ).payload;
+                  return [
+                    `${pct(value)} · ${num(payload?.activeVisitors ?? 0)} active of ${num(payload?.enrolledMembers ?? 0)} enrolled`,
+                    "Utilization",
+                  ];
+                }}
+              />
+              <ReferenceLine
+                y={citywide}
+                stroke={PALETTE.neutral}
+                strokeDasharray="4 4"
+                label={{
+                  value: `Citywide ${pct(citywide, 0)}`,
+                  fontSize: 11,
+                  position: "insideTopRight",
+                }}
+              />
+              <Bar
+                dataKey="utilization"
+                radius={[4, 4, 0, 0]}
+                cursor="pointer"
+                onClick={(entry) => {
+                  const type =
+                    (entry as unknown as { membershipType?: string }).membershipType ?? null;
+                  setSelected((prev) => (prev === type ? null : type));
+                }}
+              >
+                {segments.map((s) => (
+                  <Cell
+                    key={s.membershipType}
+                    fill={s.utilization < citywide ? PALETTE.danger : PALETTE.success}
+                    fillOpacity={selected && selected !== s.membershipType ? 0.3 : 0.85}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+
+          {selected ? (
+            <DetailPanel title={`${selected} · BHC breakdown`} onClear={() => setSelected(null)}>
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="text-left text-text-secondary">
+                    <th className="py-1 pr-2 font-medium">BHC</th>
+                    <th className="py-1 pr-2 text-right font-medium">Enrolled</th>
+                    <th className="py-1 pr-2 text-right font-medium">Active visitors</th>
+                    <th className="py-1 text-right font-medium">Utilization</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeBhcRows.map((r) => (
+                    <tr key={r.bhc} className="border-t border-border/60">
+                      <td className="py-1 pr-2">{r.bhc}</td>
+                      <td className="py-1 pr-2 text-right">{num(r.enrolled)}</td>
+                      <td className="py-1 pr-2 text-right">{num(r.active)}</td>
+                      <td className="py-1 text-right">{pct(r.utilization)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </DetailPanel>
+          ) : (
+            <p className="mt-2 text-[11px] text-text-muted">
+              Click a membership-type bar for its BHC-level enrollment and utilization breakdown.
+              Membership type is not a cross-chart dimension, so that click stays local; the panel
+              follows the global Barangay filter via its BHC catchment.
+            </p>
+          )}
+        </>
       )}
     </PanelCard>
   );
@@ -2759,9 +3231,11 @@ function KonsultaUtilizationChart() {
  * ----------------------------------------------------------------------- */
 function DengueSeverityOutcomeChart() {
   const [selected, setSelected] = React.useState<string | null>(null);
+  const { barangay, setBarangay, clearBarangay } = useTop20Filters();
 
   const { tiers, outcomes, overallHospitalization, totalCases, rowsByType } = React.useMemo(() => {
-    const rows = lguRows<DengueRow>("dengue-surveillance-pidsr");
+    const all = lguRows<DengueRow>("dengue-surveillance-pidsr");
+    const rows = barangay ? all.filter((r) => r.barangay === barangay) : all;
     const grouped = groupBy(rows, (r) => r.dengueType);
     const outcomeList = uniq(rows.map((r) => r.outcome));
     // Severity order is clinical, not alphabetical.
@@ -2789,7 +3263,7 @@ function DengueSeverityOutcomeChart() {
       totalCases: rows.length,
       rowsByType: grouped,
     };
-  }, []);
+  }, [barangay]);
 
   const activeCases = selected
     ? [...(rowsByType.get(selected) ?? [])].sort((a, b) =>
@@ -2905,9 +3379,11 @@ function DengueSeverityOutcomeChart() {
  * ----------------------------------------------------------------------- */
 function HouseholdVulnerabilityChart() {
   const [selected, setSelected] = React.useState<string | null>(null);
+  const { barangay, setBarangay, clearBarangay } = useTop20Filters();
 
   const { rows, lookup } = React.useMemo(() => {
-    const raw = lguRows<HouseholdProfileRow>("community-household-health-profile");
+    const all = lguRows<HouseholdProfileRow>("community-household-health-profile");
+    const raw = barangay ? all.filter((r) => r.barangay === barangay) : all;
     const derived = raw
       .map((r) => {
         const dmRate = safeRate(r.withDm, r.members);
@@ -2929,7 +3405,7 @@ function HouseholdVulnerabilityChart() {
     const index = new Map<string, HouseholdProfileRow>();
     for (const r of raw) index.set(r.barangay, r);
     return { rows: derived, lookup: index };
-  }, []);
+  }, [barangay]);
 
   const activeProfile = selected ? (lookup.get(selected) ?? null) : null;
 
@@ -2941,137 +3417,164 @@ function HouseholdVulnerabilityChart() {
   ] as const;
 
   const handleClick = (entry: unknown) => {
-    const barangay = (entry as { barangay?: string }).barangay ?? null;
-    setSelected((prev) => (prev === barangay ? null : barangay));
+    const clicked = (entry as { barangay?: string }).barangay ?? null;
+    setSelected((prev) => (prev === clicked ? null : clicked));
+    // Every bar IS a barangay — promote it to the global filter too.
+    if (clicked) setBarangay(clicked);
   };
 
   return (
     <PanelCard
       title="19. Household Vulnerability Index by Barangay"
       description="Which barangays combine the highest household disease/dependency burden with the weakest safety-net coverage?"
+      className={barangay ? globalFilterRing : ""}
     >
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div>
-          <p className="mb-1 text-[11px] font-medium text-text-secondary">
-            Per-capita burden (% of barangay members), sorted by total burden
-          </p>
-          <ResponsiveContainer width="100%" height={380}>
-            <BarChart
-              data={rows}
-              layout="vertical"
-              margin={{ left: 8, right: 16, top: 4, bottom: 4 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
-              <XAxis
-                type="number"
-                tick={AXIS_TICK}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(v: number) => `${v}%`}
-              />
-              <YAxis
-                type="category"
-                dataKey="barangay"
-                width={92}
-                tick={{ fontSize: 10 }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <Tooltip
-                contentStyle={TOOLTIP_STYLE}
-                cursor={{ fill: "var(--color-muted)", fillOpacity: 0.4 }}
-                formatter={(value: number, name: string) => [pct(value, 2), name]}
-              />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
-              {burdenSeries.map(([key, label, color]) => (
-                <Bar
-                  key={key}
-                  dataKey={key}
-                  name={label}
-                  stackId="burden"
-                  fill={color}
-                  cursor="pointer"
-                  onClick={handleClick}
-                />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+      {barangay ? (
+        <GlobalFilterNote dimension="barangay" value={barangay} onClear={clearBarangay} />
+      ) : null}
 
-        <div>
-          <p className="mb-1 text-[11px] font-medium text-text-secondary">
-            Social safety-net coverage (same barangay order)
-          </p>
-          <ResponsiveContainer width="100%" height={380}>
-            <BarChart
-              data={rows}
-              layout="vertical"
-              margin={{ left: 8, right: 16, top: 4, bottom: 4 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
-              <XAxis
-                type="number"
-                domain={[0, 100]}
-                tick={AXIS_TICK}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(v: number) => `${v}%`}
-              />
-              <YAxis
-                type="category"
-                dataKey="barangay"
-                width={92}
-                tick={{ fontSize: 10 }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <Tooltip
-                contentStyle={TOOLTIP_STYLE}
-                cursor={{ fill: "var(--color-muted)", fillOpacity: 0.4 }}
-                formatter={(value: number, name: string) => [pct(value), name]}
-              />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar
-                dataKey="philhealthCoverage"
-                name="PhilHealth coverage"
-                fill={PALETTE.philhealth}
-                cursor="pointer"
-                onClick={handleClick}
-              />
-              <Bar
-                dataKey="fourPsPct"
-                name="4Ps enrollment"
-                fill={PALETTE.success}
-                cursor="pointer"
-                onClick={handleClick}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {activeProfile ? (
-        <DetailPanel
-          title={`${activeProfile.barangay} · household profile`}
-          onClear={() => setSelected(null)}
-        >
-          <div className="grid gap-x-6 sm:grid-cols-2">
-            <StatRow label="Households" value={num(activeProfile.households)} />
-            <StatRow label="Members" value={num(activeProfile.members)} />
-            <StatRow label="PhilHealth coverage" value={pct(activeProfile.philhealthCoverage)} />
-            <StatRow label="4Ps enrollment" value={pct(activeProfile.fourPsPct)} />
-            <StatRow label="With diabetes" value={num(activeProfile.withDm)} />
-            <StatRow label="With hypertension" value={num(activeProfile.withHtn)} />
-            <StatRow label="With TB" value={num(activeProfile.withTb)} />
-            <StatRow label="Pregnant" value={num(activeProfile.pregnant)} />
-            <StatRow label="Children under 5" value={num(activeProfile.childrenUnder5)} />
-            <StatRow label="Elderly (60+)" value={num(activeProfile.elderly)} />
-          </div>
-        </DetailPanel>
+      {rows.length === 0 ? (
+        <NoDataForSelection
+          what={`No household profile is recorded for ${barangay ?? "this selection"}.`}
+        />
       ) : (
-        <p className="mt-2 text-[11px] text-text-muted">
-          Click any bar to open that barangay&apos;s full household profile.
-        </p>
+        <>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div>
+              <p className="mb-1 text-[11px] font-medium text-text-secondary">
+                Per-capita burden (% of barangay members), sorted by total burden
+              </p>
+              <ResponsiveContainer width="100%" height={380}>
+                <BarChart
+                  data={rows}
+                  layout="vertical"
+                  margin={{ left: 8, right: 16, top: 4, bottom: 4 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    className="stroke-border"
+                    horizontal={false}
+                  />
+                  <XAxis
+                    type="number"
+                    tick={AXIS_TICK}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v: number) => `${v}%`}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="barangay"
+                    width={92}
+                    tick={{ fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={TOOLTIP_STYLE}
+                    cursor={{ fill: "var(--color-muted)", fillOpacity: 0.4 }}
+                    formatter={(value: number, name: string) => [pct(value, 2), name]}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  {burdenSeries.map(([key, label, color]) => (
+                    <Bar
+                      key={key}
+                      dataKey={key}
+                      name={label}
+                      stackId="burden"
+                      fill={color}
+                      cursor="pointer"
+                      onClick={handleClick}
+                    />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div>
+              <p className="mb-1 text-[11px] font-medium text-text-secondary">
+                Social safety-net coverage (same barangay order)
+              </p>
+              <ResponsiveContainer width="100%" height={380}>
+                <BarChart
+                  data={rows}
+                  layout="vertical"
+                  margin={{ left: 8, right: 16, top: 4, bottom: 4 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    className="stroke-border"
+                    horizontal={false}
+                  />
+                  <XAxis
+                    type="number"
+                    domain={[0, 100]}
+                    tick={AXIS_TICK}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v: number) => `${v}%`}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="barangay"
+                    width={92}
+                    tick={{ fontSize: 10 }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={TOOLTIP_STYLE}
+                    cursor={{ fill: "var(--color-muted)", fillOpacity: 0.4 }}
+                    formatter={(value: number, name: string) => [pct(value), name]}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  <Bar
+                    dataKey="philhealthCoverage"
+                    name="PhilHealth coverage"
+                    fill={PALETTE.philhealth}
+                    cursor="pointer"
+                    onClick={handleClick}
+                  />
+                  <Bar
+                    dataKey="fourPsPct"
+                    name="4Ps enrollment"
+                    fill={PALETTE.success}
+                    cursor="pointer"
+                    onClick={handleClick}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {activeProfile ? (
+            <DetailPanel
+              title={`${activeProfile.barangay} · household profile`}
+              onClear={() => setSelected(null)}
+            >
+              <div className="grid gap-x-6 sm:grid-cols-2">
+                <StatRow label="Households" value={num(activeProfile.households)} />
+                <StatRow label="Members" value={num(activeProfile.members)} />
+                <StatRow
+                  label="PhilHealth coverage"
+                  value={pct(activeProfile.philhealthCoverage)}
+                />
+                <StatRow label="4Ps enrollment" value={pct(activeProfile.fourPsPct)} />
+                <StatRow label="With diabetes" value={num(activeProfile.withDm)} />
+                <StatRow label="With hypertension" value={num(activeProfile.withHtn)} />
+                <StatRow label="With TB" value={num(activeProfile.withTb)} />
+                <StatRow label="Pregnant" value={num(activeProfile.pregnant)} />
+                <StatRow label="Children under 5" value={num(activeProfile.childrenUnder5)} />
+                <StatRow label="Elderly (60+)" value={num(activeProfile.elderly)} />
+              </div>
+            </DetailPanel>
+          ) : (
+            <p className="mt-2 text-[11px] text-text-muted">
+              Click any bar to open that barangay&apos;s full household profile — or to filter the
+              whole dashboard to it.
+            </p>
+          )}
+        </>
       )}
     </PanelCard>
   );
@@ -3263,50 +3766,57 @@ function MaternalDeathAuditChart() {
 
 export default function Top20NewCharts() {
   return (
-    <div className="space-y-8 p-4 md:p-6">
-      <div>
-        <h1 className="text-lg font-semibold tracking-tight text-text-primary">
-          Top 20 New Analytics Charts — Preview
-        </h1>
-        <p className="mt-1 text-xs text-text-muted">
-          Standalone, unwired preview of the 20 charts specified in <code>top20-charts.md</code>,
-          bound to real mock data per <code>schema.md</code>. Not registered in any route or nav.
-        </p>
+    <Top20FilterProvider>
+      <div className="space-y-8 p-4 md:p-6">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight text-text-primary">
+            Top 20 New Analytics Charts — Preview
+          </h1>
+          <p className="mt-1 text-xs text-text-muted">
+            Standalone, unwired preview of the 20 charts specified in <code>top20-charts.md</code>,
+            bound to real mock data per <code>schema.md</code>. Not registered in any route or nav.
+            Department and barangay selections made in any chart below apply to every other chart
+            that shares that dimension — see the filter bar.
+          </p>
+        </div>
+
+        <Top20FloatingFilterHeader />
+
+        <section className="space-y-4">
+          <SectionTitle
+            title="Hospital Analytics — New Charts (1–12)"
+            description="Executive KPI extensions, previously chart-less report data, and the claims-lifecycle chain."
+          />
+          <MortalityByDiagnosisChart />
+          <AlosByAdmissionTypeChart />
+          <PhysicianProductivityQuadrantChart />
+          <WardOccupancyHeatmap />
+          <DepartmentalArTrendChart />
+          <RemittanceBatchTrackerChart />
+          <ClaimsReimbursementStructureChart />
+          <AppealRecoveryFunnelChart />
+          <FormularySubstitutionChart />
+          <LabTestEfficiencyChart />
+          <DischargeBlockersChart />
+          <ReadmissionMatrixChart />
+        </section>
+
+        <section className="space-y-4">
+          <SectionTitle
+            title="LGU / Public Health Analytics — New Charts (13–20)"
+            description="Referral network, coverage gaps, program rollups and outbreak severity for the City Health Office."
+          />
+          <GeographicOverviewPanel />
+          <ReferralNetworkSankey />
+          <ImmunizationCoverageMatrix />
+          <NcdBurdenControlChart />
+          <FhsisSectionRollupChart />
+          <KonsultaUtilizationChart />
+          <DengueSeverityOutcomeChart />
+          <HouseholdVulnerabilityChart />
+          <MaternalDeathAuditChart />
+        </section>
       </div>
-
-      <section className="space-y-4">
-        <SectionTitle
-          title="Hospital Analytics — New Charts (1–12)"
-          description="Executive KPI extensions, previously chart-less report data, and the claims-lifecycle chain."
-        />
-        <MortalityByDiagnosisChart />
-        <AlosByAdmissionTypeChart />
-        <PhysicianProductivityQuadrantChart />
-        <WardOccupancyHeatmap />
-        <DepartmentalArTrendChart />
-        <RemittanceBatchTrackerChart />
-        <ClaimsReimbursementStructureChart />
-        <AppealRecoveryFunnelChart />
-        <FormularySubstitutionChart />
-        <LabTestEfficiencyChart />
-        <DischargeBlockersChart />
-        <ReadmissionMatrixChart />
-      </section>
-
-      <section className="space-y-4">
-        <SectionTitle
-          title="LGU / Public Health Analytics — New Charts (13–20)"
-          description="Referral network, coverage gaps, program rollups and outbreak severity for the City Health Office."
-        />
-        <ReferralNetworkSankey />
-        <ImmunizationCoverageMatrix />
-        <NcdBurdenControlChart />
-        <FhsisSectionRollupChart />
-        <KonsultaUtilizationChart />
-        <DengueSeverityOutcomeChart />
-        <HouseholdVulnerabilityChart />
-        <MaternalDeathAuditChart />
-      </section>
-    </div>
+    </Top20FilterProvider>
   );
 }
