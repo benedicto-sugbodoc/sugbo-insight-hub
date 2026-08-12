@@ -39,8 +39,19 @@
 import * as React from "react";
 import { X } from "lucide-react";
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { PH_DEPARTMENTS } from "@/lib/analytics/ph-constants";
 import { BARANGAYS } from "@/lib/analytics/lgu/shared.mock";
 import { cn } from "@/lib/utils";
+
+const DEPARTMENT_OPTIONS: readonly string[] = PH_DEPARTMENTS;
+const BARANGAY_OPTIONS: readonly string[] = BARANGAYS.map((b) => b.name);
 
 /* -------------------------------------------------------------------------
  * State + API
@@ -156,17 +167,65 @@ function FilterChip({
 }
 
 /**
+ * One labeled dropdown, used for the explicit Department / Barangay pickers
+ * in the floating header. `value` is `"all"` when the dimension is unfiltered
+ * (native `<select>`/Radix `Select` can't represent an empty string cleanly),
+ * mapped back to `null` on the way out.
+ */
+function FilterSelect({
+  label,
+  placeholder,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  value: string | null;
+  options: readonly string[];
+  onChange: (value: string | null) => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1.5">
+      <span className="text-[11px] font-medium text-text-muted">{label}</span>
+      <Select value={value ?? "all"} onValueChange={(v) => onChange(v === "all" ? null : v)}>
+        <SelectTrigger className="h-7 w-40 text-xs">
+          <SelectValue placeholder={placeholder} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all" className="text-xs">
+            {placeholder}
+          </SelectItem>
+          {options.map((o) => (
+            <SelectItem key={o} value={o} className="text-xs">
+              {o}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+/**
  * Slim sticky bar shown once at the top of the Top-20 dashboard.
  *
  * `top-12` (48px) clears the `/analytics` layout's own sticky nav bar, which is
  * a `py-2` row of `py-1.5 text-sm` tabs plus a 1px bottom border (~49px tall);
  * `z-10` keeps it *under* that nav (`z-20`) rather than fighting it.
+ *
+ * The two `<Select>`s are the primary, always-available way to set a filter —
+ * every chart's click-to-drill still works and calls the same setters, but a
+ * user should never be *required* to find and click the right bar/cell just
+ * to filter the dashboard.
  */
 export function Top20FloatingFilterHeader({ className }: { className?: string }) {
   const {
     department,
     barangay,
     selectedBhc,
+    setDepartment,
+    setBarangay,
     clearDepartment,
     clearBarangay,
     resetAll,
@@ -176,7 +235,7 @@ export function Top20FloatingFilterHeader({ className }: { className?: string })
   return (
     <div
       className={cn(
-        "sticky top-12 z-10 -mx-4 border-y border-border bg-card/95 px-4 py-1.5 backdrop-blur md:-mx-6 md:px-6",
+        "sticky top-12 z-10 -mx-4 space-y-1.5 border-y border-border bg-card/95 px-4 py-1.5 backdrop-blur md:-mx-6 md:px-6",
         className,
       )}
     >
@@ -185,33 +244,52 @@ export function Top20FloatingFilterHeader({ className }: { className?: string })
           Filters
         </span>
 
+        <FilterSelect
+          label="Department"
+          placeholder="All departments"
+          value={department}
+          options={DEPARTMENT_OPTIONS}
+          onChange={setDepartment}
+        />
+        <FilterSelect
+          label="Barangay"
+          placeholder="All barangays"
+          value={barangay}
+          options={BARANGAY_OPTIONS}
+          onChange={setBarangay}
+        />
+
         {isFiltered ? (
-          <>
-            {department ? (
-              <FilterChip label="Department" value={department} onRemove={clearDepartment} />
-            ) : null}
-            {barangay ? (
-              <FilterChip
-                label="Barangay"
-                value={barangay}
-                {...(selectedBhc ? { note: selectedBhc } : {})}
-                onRemove={clearBarangay}
-              />
-            ) : null}
-            <button
-              type="button"
-              onClick={resetAll}
-              className="ml-auto shrink-0 text-[11px] font-medium text-text-muted underline-offset-2 hover:text-text-primary hover:underline"
-            >
-              Clear all
-            </button>
-          </>
-        ) : (
-          <span className="text-[11px] text-text-muted">
-            No filters applied — click any department or barangay chart to drill in.
-          </span>
-        )}
+          <button
+            type="button"
+            onClick={resetAll}
+            className="ml-auto shrink-0 text-[11px] font-medium text-text-muted underline-offset-2 hover:text-text-primary hover:underline"
+          >
+            Clear all
+          </button>
+        ) : null}
       </div>
+
+      {isFiltered ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          {department ? (
+            <FilterChip label="Department" value={department} onRemove={clearDepartment} />
+          ) : null}
+          {barangay ? (
+            <FilterChip
+              label="Barangay"
+              value={barangay}
+              {...(selectedBhc ? { note: selectedBhc } : {})}
+              onRemove={clearBarangay}
+            />
+          ) : null}
+        </div>
+      ) : (
+        <span className="text-[11px] text-text-muted">
+          No filters applied — pick a department/barangay above, or click any department or barangay
+          chart to drill in.
+        </span>
+      )}
     </div>
   );
 }
