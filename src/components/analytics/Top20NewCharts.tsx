@@ -95,6 +95,13 @@ import {
 import { sankey as d3Sankey, sankeyLinkHorizontal, type SankeyGraph } from "d3-sankey";
 
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   LegendDot,
   PALETTE,
   PanelCard,
@@ -978,19 +985,57 @@ function PhysicianProductivityQuadrantChart() {
  * 4. Ward Occupancy & Discharge Readiness Heatmap
  * Source: CensusRow (R-01 `daily-census`)
  * ----------------------------------------------------------------------- */
+type WardSortMode = "name-asc" | "occupancy-desc" | "occupancy-asc" | "pending-desc";
+
+const WARD_SORT_OPTIONS: { value: WardSortMode; label: string }[] = [
+  { value: "name-asc", label: "Ward name (A–Z)" },
+  { value: "occupancy-desc", label: "Occupancy (highest first)" },
+  { value: "occupancy-asc", label: "Occupancy (lowest first)" },
+  { value: "pending-desc", label: "Pending discharges (highest first)" },
+];
+
 function WardOccupancyHeatmap() {
   const [selected, setSelected] = React.useState<{ row: number; col: number } | null>(null);
+  const [sortMode, setSortMode] = React.useState<WardSortMode>("name-asc");
 
-  const { wards, dates, matrix, lookup } = React.useMemo(() => {
+  const { wardStats, dates, lookup } = React.useMemo(() => {
     const rows = hospitalRows<CensusRow>("daily-census");
     const wardList = uniq(rows.map((r) => r.ward));
     const dateList = uniq(rows.map((r) => r.date)).sort();
     const index = new Map<string, CensusRow>();
     for (const r of rows) index.set(`${r.ward}|${r.date}`, r);
 
+    const stats = wardList.map((ward) => {
+      const wardRows = rows.filter((r) => r.ward === ward);
+      return {
+        ward,
+        avgOccupancy: meanBy(wardRows, (r) => safeRate(r.occupied, r.capacity)),
+        totalPending: sumBy(wardRows, (r) => r.pendingDischarges),
+      };
+    });
+
+    return { wardStats: stats, dates: dateList, lookup: index };
+  }, []);
+
+  const { wards, matrix } = React.useMemo(() => {
+    const sorted = [...wardStats].sort((a, b) => {
+      switch (sortMode) {
+        case "occupancy-desc":
+          return b.avgOccupancy - a.avgOccupancy;
+        case "occupancy-asc":
+          return a.avgOccupancy - b.avgOccupancy;
+        case "pending-desc":
+          return b.totalPending - a.totalPending;
+        case "name-asc":
+        default:
+          return a.ward.localeCompare(b.ward);
+      }
+    });
+    const wardList = sorted.map((s) => s.ward);
+
     const grid: HeatCell[][] = wardList.map((ward) =>
-      dateList.map((date) => {
-        const row = index.get(`${ward}|${date}`);
+      dates.map((date) => {
+        const row = lookup.get(`${ward}|${date}`);
         if (!row) return { value: null, title: `${ward} · ${date}: no data` };
         const occupancy = safeRate(row.occupied, row.capacity);
         return {
@@ -1001,8 +1046,12 @@ function WardOccupancyHeatmap() {
       }),
     );
 
-    return { wards: wardList, dates: dateList, matrix: grid, lookup: index };
-  }, []);
+    return { wards: wardList, matrix: grid };
+  }, [wardStats, dates, lookup, sortMode]);
+
+  React.useEffect(() => {
+    setSelected(null);
+  }, [sortMode]);
 
   const activeWard = selected ? (wards[selected.row] ?? null) : null;
   const activeDate = selected ? (dates[selected.col] ?? null) : null;
@@ -1013,6 +1062,20 @@ function WardOccupancyHeatmap() {
     <PanelCard
       title="4. Ward Occupancy & Discharge Readiness Heatmap"
       description="Which wards are gridlocked today — full beds plus a backlog of patients clinically ready to leave?"
+      action={
+        <Select value={sortMode} onValueChange={(v) => setSortMode(v as WardSortMode)}>
+          <SelectTrigger className="h-7 w-[13rem] text-xs">
+            <SelectValue placeholder="Sort wards" />
+          </SelectTrigger>
+          <SelectContent>
+            {WARD_SORT_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value} className="text-xs">
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      }
     >
       <ValueHeatGrid
         rowLabels={wards}
@@ -1065,12 +1128,19 @@ function WardOccupancyHeatmap() {
  * 5. Departmental AR Trend (outstanding % over time)
  * Source: RevenueRow (R-06 `revenue-collection`)
  * ----------------------------------------------------------------------- */
+const AR_HOSPITAL_KEY = "Hospital";
+const AR_HOSPITAL_LABEL = "Hospital (total)";
+
 function DepartmentalArTrendChart() {
   // This chart's pre-existing "isolate one department" state IS the department
   // dimension, so it was promoted to the global filter rather than duplicated:
   // legend clicks here drive every other department-keyed panel on the page.
   const { department, setDepartment, clearDepartment } = useTop20Filters();
   const isolated = department;
+  // Hover is purely visual (isolates a line in the chart) and never touches the
+  // global filter or triggers the drill-down panel — only a legend click does that.
+  const [hovered, setHovered] = React.useState<string | null>(null);
+  const activeLine = hovered ?? isolated;
 
   const { series, departments, byDepartment } = React.useMemo(() => {
     const all = hospitalRows<RevenueRow>("revenue-collection");
@@ -1080,6 +1150,18 @@ function DepartmentalArTrendChart() {
     const labelFor = new Map<string, string>();
     for (const r of rows) labelFor.set(r.isoDate, r.month);
 
+    // Hospital-wide total is a weighted rate over ALL departments' raw
+    // outstanding AR / gross charges — never over the (possibly
+    // department-filtered) `rows` — so it stays a meaningful benchmark line
+    // even while a single department is isolated.
+    const hospitalTotals = new Map<string, { ar: number; gross: number }>();
+    for (const r of all) {
+      const acc = hospitalTotals.get(r.isoDate) ?? { ar: 0, gross: 0 };
+      acc.ar += r.outstandingAr;
+      acc.gross += r.grossCharges;
+      hospitalTotals.set(r.isoDate, acc);
+    }
+
     const chartRows = isoDates.map((iso) => {
       const point: Record<string, string | number> = { month: labelFor.get(iso) ?? iso };
       for (const dept of depts) {
@@ -1087,6 +1169,8 @@ function DepartmentalArTrendChart() {
         if (match)
           point[dept] = Math.round(safeRate(match.outstandingAr, match.grossCharges) * 10) / 10;
       }
+      const totals = hospitalTotals.get(iso);
+      if (totals) point[AR_HOSPITAL_KEY] = Math.round(safeRate(totals.ar, totals.gross) * 10) / 10;
       return point;
     });
 
@@ -1147,15 +1231,30 @@ function DepartmentalArTrendChart() {
               />
               <Tooltip
                 contentStyle={TOOLTIP_STYLE}
-                formatter={(value: number, name: string) => [pct(value), name]}
+                formatter={(value: number, name: string) => [
+                  pct(value),
+                  name === AR_HOSPITAL_KEY ? AR_HOSPITAL_LABEL : name,
+                ]}
               />
               <Legend
                 wrapperStyle={{ fontSize: 11 }}
                 onClick={(entry) => {
-                  const name = (entry as unknown as { value?: string }).value ?? null;
-                  // Legend entries ARE departments, so a click sets the global filter.
-                  setDepartment(name && name !== department ? name : null);
+                  const value = (entry as unknown as { value?: string }).value ?? null;
+                  // The Hospital entry is the aggregate benchmark, not a drill-down
+                  // target — clicking it just clears any department isolation.
+                  if (value === AR_HOSPITAL_LABEL) {
+                    clearDepartment();
+                    return;
+                  }
+                  // Department legend entries ARE departments, so a click sets the
+                  // global filter (this is the only interaction that drills down).
+                  setDepartment(value && value !== department ? value : null);
                 }}
+                onMouseEnter={(entry) => {
+                  const value = (entry as unknown as { value?: string }).value ?? null;
+                  setHovered(value === AR_HOSPITAL_LABEL ? AR_HOSPITAL_KEY : value);
+                }}
+                onMouseLeave={() => setHovered(null)}
               />
               {departments.map((dept) => (
                 <Line
@@ -1163,12 +1262,23 @@ function DepartmentalArTrendChart() {
                   type="monotone"
                   dataKey={dept}
                   stroke={deptColor(dept)}
-                  strokeWidth={isolated === dept ? 2.5 : 1.6}
-                  strokeOpacity={isolated && isolated !== dept ? 0.15 : 1}
+                  strokeWidth={activeLine === dept ? 2.5 : 1.4}
+                  strokeOpacity={activeLine && activeLine !== dept ? 0.15 : 1}
+                  strokeDasharray="5 3"
                   dot={false}
                   activeDot={{ r: 4 }}
                 />
               ))}
+              <Line
+                type="monotone"
+                dataKey={AR_HOSPITAL_KEY}
+                name={AR_HOSPITAL_LABEL}
+                stroke={PALETTE.brand}
+                strokeWidth={activeLine === AR_HOSPITAL_KEY ? 4 : 3}
+                strokeOpacity={activeLine && activeLine !== AR_HOSPITAL_KEY ? 0.15 : 1}
+                dot={false}
+                activeDot={{ r: 5 }}
+              />
             </LineChart>
           </ResponsiveContainer>
 
@@ -1205,8 +1315,9 @@ function DepartmentalArTrendChart() {
             </DetailPanel>
           ) : (
             <p className="mt-2 text-[11px] text-text-muted">
-              Click a legend entry to isolate one department&apos;s line and open its 12-month
-              detail — the same click filters every other department-keyed panel on this page.
+              Hover a legend entry to preview its line alone. Click a department to isolate it, open
+              its 12-month detail, and filter every other department-keyed panel on this page —
+              click Hospital (total) to clear that filter.
             </p>
           )}
         </>
