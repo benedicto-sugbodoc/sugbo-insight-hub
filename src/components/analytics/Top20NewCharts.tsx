@@ -797,48 +797,128 @@ function PhysicianProductivityQuadrantChart() {
   const [selected, setSelected] = React.useState<string | null>(null);
   const { department, setDepartment, clearDepartment } = useTop20Filters();
 
-  const { points, medianCases, medianRevenue, rowsByPhysician } = React.useMemo(() => {
+  const {
+    points,
+    medianCases,
+    medianRevenue,
+    rowsByPhysician,
+    xDomain,
+    yDomain,
+  } = React.useMemo(() => {
     const all = hospitalRows<PhysicianActivityRow>("physician-activity");
-    // Global department filter is applied to the raw rows, BEFORE aggregation,
+
+    // Global department filter is applied to the raw rows BEFORE aggregation,
     // so the bubbles and the drill-down table are the same filtered cohort.
-    const rows = department ? all.filter((r) => r.department === department) : all;
+    const rows = department
+      ? all.filter((r) => r.department === department)
+      : all;
+
     const byPhysician = groupBy(rows, (r) => r.physician);
-    const aggregated = Array.from(byPhysician.entries()).map(([physician, physicianRows]) => {
-      const ordered = [...physicianRows].sort((a, b) => a.isoDate.localeCompare(b.isoDate));
-      const latest = ordered[ordered.length - 1];
-      return {
-        physician,
-        specialty: latest?.specialty ?? "—",
-        department: latest?.department ?? "—",
+
+    const aggregated = Array.from(byPhysician.entries()).map(
+      ([physician, physicianRows]) => {
+        const ordered = [...physicianRows].sort((a, b) =>
+          a.isoDate.localeCompare(b.isoDate),
+        );
+
+        const latest = ordered[ordered.length - 1];
+
+        return {
+          physician,
+          specialty: latest?.specialty ?? "—",
+          department: latest?.department ?? "—",
+          cases: sumBy(physicianRows, (r) => r.cases),
+          pfRevenue: sumBy(physicianRows, (r) => r.pfRevenue),
+
+          // Bubble size = approval rate for the physician's MOST RECENT month.
+          approvalRate: latest?.approvalRate ?? 0,
+
+          procedures: sumBy(physicianRows, (r) => r.procedures),
+          philhealthPfClaims: sumBy(
+            physicianRows,
+            (r) => r.philhealthPfClaims,
+          ),
+          avgLos: meanBy(physicianRows, (r) => r.avgLos),
+        };
+      },
+    );
+
+    // Benchmark lines stay on the FULL roster.
+    // This prevents a small department from having meaningless medians.
+    const benchmarkByPhysician = groupBy(all, (r) => r.physician);
+
+    const benchmark = Array.from(benchmarkByPhysician.values()).map(
+      (physicianRows) => ({
         cases: sumBy(physicianRows, (r) => r.cases),
         pfRevenue: sumBy(physicianRows, (r) => r.pfRevenue),
-        // Bubble size = approval rate for the physician's MOST RECENT month (raw field).
-        approvalRate: latest?.approvalRate ?? 0,
-        procedures: sumBy(physicianRows, (r) => r.procedures),
-        philhealthPfClaims: sumBy(physicianRows, (r) => r.philhealthPfClaims),
-        avgLos: meanBy(physicianRows, (r) => r.avgLos),
-      };
-    });
-    // Benchmark lines stay on the FULL roster: a two-physician department's own
-    // median would put both quadrant lines through the data and say nothing.
-    const benchmarkByPhysician = groupBy(all, (r) => r.physician);
-    const benchmark = Array.from(benchmarkByPhysician.values()).map((physicianRows) => ({
-      cases: sumBy(physicianRows, (r) => r.cases),
-      pfRevenue: sumBy(physicianRows, (r) => r.pfRevenue),
-    }));
+      }),
+    );
+
+    /*
+     * Calculate chart domains from the ACTUAL displayed data.
+     *
+     * Instead of:
+     *   X = 0 → max
+     *   Y = 0 → max
+     *
+     * we zoom into the range where physicians actually exist.
+     *
+     * 10% padding keeps bubbles away from the edges.
+     */
+    const getPaddedDomain = (
+      values: number[],
+      padding = 0.1,
+    ): [number, number] => {
+      if (values.length === 0) {
+        return [0, 1];
+      }
+
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const range = max - min;
+
+      // If every value is identical, create a small artificial range.
+      if (range === 0) {
+        const buffer = Math.max(Math.abs(max) * 0.1, 1);
+
+        return [
+          Math.max(0, min - buffer),
+          max + buffer,
+        ];
+      }
+
+      return [
+        Math.max(0, min - range * padding),
+        max + range * padding,
+      ];
+    };
+
+    const xDomain = getPaddedDomain(
+      aggregated.map((p) => p.cases),
+      0.1,
+    );
+
+    const yDomain = getPaddedDomain(
+      aggregated.map((p) => p.pfRevenue),
+      0.1,
+    );
 
     return {
       points: aggregated,
       medianCases: median(benchmark.map((p) => p.cases)),
       medianRevenue: median(benchmark.map((p) => p.pfRevenue)),
       rowsByPhysician: byPhysician,
+      xDomain,
+      yDomain,
     };
   }, [department]);
 
-  const activePoint = points.find((p) => p.physician === selected) ?? null;
+  const activePoint =
+    points.find((p) => p.physician === selected) ?? null;
+
   const activeRows = activePoint
-    ? [...(rowsByPhysician.get(activePoint.physician) ?? [])].sort((a, b) =>
-        a.isoDate.localeCompare(b.isoDate),
+    ? [...(rowsByPhysician.get(activePoint.physician) ?? [])].sort(
+        (a, b) => a.isoDate.localeCompare(b.isoDate),
       )
     : [];
 
@@ -859,17 +939,31 @@ function PhysicianProductivityQuadrantChart() {
 
       {points.length === 0 ? (
         <NoDataForSelection
-          what={`No physician-activity rows are recorded for ${department ?? "this selection"}.`}
+          what={`No physician-activity rows are recorded for ${
+            department ?? "this selection"
+          }.`}
         />
       ) : (
         <>
           <ResponsiveContainer width="100%" height={300}>
-            <ScatterChart margin={{ left: 8, right: 20, top: 8, bottom: 16 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+            <ScatterChart
+              margin={{
+                left: 8,
+                right: 20,
+                top: 8,
+                bottom: 16,
+              }}
+            >
+              <CartesianGrid
+                strokeDasharray="3 3"
+                className="stroke-border"
+              />
+
               <XAxis
                 type="number"
                 dataKey="cases"
                 name="Cases"
+                domain={xDomain}
                 tick={AXIS_TICK}
                 tickLine={false}
                 axisLine={false}
@@ -880,48 +974,99 @@ function PhysicianProductivityQuadrantChart() {
                   offset: -8,
                 }}
               />
+
               <YAxis
                 type="number"
                 dataKey="pfRevenue"
                 name="PF revenue"
+                domain={yDomain}
                 tick={AXIS_TICK}
                 tickLine={false}
                 axisLine={false}
                 width={62}
-                tickFormatter={(v: number) => php(v, { compact: true }).replace("PHP ", "")}
-                label={{ value: "PF revenue", angle: -90, fontSize: 11 }}
+                tickFormatter={(v: number) =>
+                  php(v, { compact: true }).replace("PHP ", "")
+                }
+                label={{
+                  value: "PF revenue",
+                  angle: -90,
+                  fontSize: 11,
+                }}
               />
-              <ZAxis type="number" dataKey="approvalRate" range={[60, 460]} name="Approval rate" />
-              <ReferenceLine x={medianCases} stroke={PALETTE.neutral} strokeDasharray="4 4" />
-              <ReferenceLine y={medianRevenue} stroke={PALETTE.neutral} strokeDasharray="4 4" />
+
+              <ZAxis
+                type="number"
+                dataKey="approvalRate"
+                range={[60, 460]}
+                name="Approval rate"
+              />
+
+              {/* Benchmark lines remain based on the full physician roster */}
+              <ReferenceLine
+                x={medianCases}
+                stroke={PALETTE.neutral}
+                strokeDasharray="4 4"
+              />
+
+              <ReferenceLine
+                y={medianRevenue}
+                stroke={PALETTE.neutral}
+                strokeDasharray="4 4"
+              />
+
               <Tooltip
-                cursor={{ strokeDasharray: "3 3" }}
+                cursor={{
+                  strokeDasharray: "3 3",
+                }}
                 contentStyle={TOOLTIP_STYLE}
                 formatter={(value: number, name: string) => {
-                  if (name === "PF revenue") return [php(value, { compact: true }), name];
-                  if (name === "Approval rate") return [pct(value), name];
+                  if (name === "PF revenue") {
+                    return [
+                      php(value, { compact: true }),
+                      name,
+                    ];
+                  }
+
+                  if (name === "Approval rate") {
+                    return [pct(value), name];
+                  }
+
                   return [num(value), name];
                 }}
                 labelFormatter={() => ""}
               />
+
               <Scatter
                 data={points}
                 cursor="pointer"
                 onClick={(entry) => {
-                  const point = entry as unknown as { physician?: string; department?: string };
+                  const point = entry as unknown as {
+                    physician?: string;
+                    department?: string;
+                  };
+
                   const name = point.physician ?? null;
-                  // Physician stays a chart-local drill (no other chart has that
-                  // field); the bubble's department — which is what its colour
-                  // encodes — propagates to the dashboard-wide filter.
-                  setSelected((prev) => (prev === name ? null : name));
-                  if (point.department) setDepartment(point.department);
+
+                  // Physician stays a chart-local drill.
+                  setSelected((prev) =>
+                    prev === name ? null : name,
+                  );
+
+                  // Department propagates to the dashboard-wide filter.
+                  if (point.department) {
+                    setDepartment(point.department);
+                  }
                 }}
               >
                 {points.map((p) => (
                   <Cell
                     key={p.physician}
                     fill={deptColor(p.department)}
-                    fillOpacity={selected && selected !== p.physician ? 0.25 : 0.75}
+                    fillOpacity={
+                      selected && selected !== p.physician
+                        ? 0.25
+                        : 0.75
+                    }
                   />
                 ))}
               </Scatter>
@@ -929,12 +1074,18 @@ function PhysicianProductivityQuadrantChart() {
           </ResponsiveContainer>
 
           <p className="mt-1 text-[11px] text-text-muted">
-            Quadrant lines = {department ? "all-department" : "cohort"} median cases / median PF
-            revenue
-            {department ? " (benchmark held at the full roster)" : ""}. Bubble size =
-            most-recent-month approval rate. Bottom-right = high volume, low revenue (possible
-            undercoding). Clicking a bubble also filters the dashboard to that physician&apos;s
-            department.
+            Quadrant lines ={" "}
+            {department
+              ? "all-department"
+              : "cohort"}{" "}
+            median cases / median PF revenue
+            {department
+              ? " (benchmark held at the full roster)"
+              : ""}
+            . Bubble size = most-recent-month approval rate.
+            Bottom-right = high volume, low revenue (possible
+            undercoding). Clicking a bubble also filters the
+            dashboard to that physician&apos;s department.
           </p>
 
           {activePoint ? (
@@ -943,32 +1094,82 @@ function PhysicianProductivityQuadrantChart() {
               onClear={() => setSelected(null)}
             >
               <div className="mb-2 grid grid-cols-2 gap-x-4 sm:grid-cols-4">
-                <StatRow label="Cases" value={num(activePoint.cases)} />
-                <StatRow label="PF revenue" value={php(activePoint.pfRevenue, { compact: true })} />
-                <StatRow label="Approval rate" value={pct(activePoint.approvalRate)} />
-                <StatRow label="Procedures" value={num(activePoint.procedures)} />
+                <StatRow
+                  label="Cases"
+                  value={num(activePoint.cases)}
+                />
+
+                <StatRow
+                  label="PF revenue"
+                  value={php(activePoint.pfRevenue, {
+                    compact: true,
+                  })}
+                />
+
+                <StatRow
+                  label="Approval rate"
+                  value={pct(activePoint.approvalRate)}
+                />
+
+                <StatRow
+                  label="Procedures"
+                  value={num(activePoint.procedures)}
+                />
               </div>
+
               <div className="max-h-52 overflow-y-auto">
                 <table className="w-full text-[11px]">
                   <thead className="sticky top-0 bg-muted/60">
                     <tr className="text-left text-text-secondary">
-                      <th className="py-1 pr-2 font-medium">Month</th>
-                      <th className="py-1 pr-2 text-right font-medium">Cases</th>
-                      <th className="py-1 pr-2 text-right font-medium">Procedures</th>
-                      <th className="py-1 pr-2 text-right font-medium">PF revenue</th>
-                      <th className="py-1 text-right font-medium">Approval</th>
+                      <th className="py-1 pr-2 font-medium">
+                        Month
+                      </th>
+
+                      <th className="py-1 pr-2 text-right font-medium">
+                        Cases
+                      </th>
+
+                      <th className="py-1 pr-2 text-right font-medium">
+                        Procedures
+                      </th>
+
+                      <th className="py-1 pr-2 text-right font-medium">
+                        PF revenue
+                      </th>
+
+                      <th className="py-1 text-right font-medium">
+                        Approval
+                      </th>
                     </tr>
                   </thead>
+
                   <tbody>
                     {activeRows.map((r) => (
-                      <tr key={r.isoDate} className="border-t border-border/60">
-                        <td className="py-1 pr-2">{r.isoDate.slice(0, 7)}</td>
-                        <td className="py-1 pr-2 text-right">{num(r.cases)}</td>
-                        <td className="py-1 pr-2 text-right">{num(r.procedures)}</td>
-                        <td className="py-1 pr-2 text-right">
-                          {php(r.pfRevenue, { compact: true })}
+                      <tr
+                        key={r.isoDate}
+                        className="border-t border-border/60"
+                      >
+                        <td className="py-1 pr-2">
+                          {r.isoDate.slice(0, 7)}
                         </td>
-                        <td className="py-1 text-right">{pct(r.approvalRate, 0)}</td>
+
+                        <td className="py-1 pr-2 text-right">
+                          {num(r.cases)}
+                        </td>
+
+                        <td className="py-1 pr-2 text-right">
+                          {num(r.procedures)}
+                        </td>
+
+                        <td className="py-1 pr-2 text-right">
+                          {php(r.pfRevenue, {
+                            compact: true,
+                          })}
+                        </td>
+
+                        <td className="py-1 text-right">
+                          {pct(r.approvalRate, 0)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
