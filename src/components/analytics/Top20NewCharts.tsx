@@ -93,6 +93,7 @@ import {
   ZAxis,
 } from "recharts";
 import { sankey as d3Sankey, sankeyLinkHorizontal, type SankeyGraph } from "d3-sankey";
+import { Eye, EyeOff } from "lucide-react";
 
 import {
   Select,
@@ -1131,16 +1132,201 @@ function WardOccupancyHeatmap() {
 const AR_HOSPITAL_KEY = "Hospital";
 const AR_HOSPITAL_LABEL = "Hospital (total)";
 
+type ArViewMode =
+  | "all"
+  | "worsening"
+  | "improving"
+  | "top3-worsening"
+  | "top3-improving"
+  | "hospital-selected"
+  | "custom";
+
+const AR_VIEW_OPTIONS: { value: ArViewMode; label: string }[] = [
+  { value: "all", label: "All Departments" },
+  { value: "worsening", label: "Worsening Only" },
+  { value: "improving", label: "Improving Only" },
+  { value: "top3-worsening", label: "Top 3 Worsening" },
+  { value: "top3-improving", label: "Top 3 Improving" },
+  { value: "hospital-selected", label: "Hospital Total + Selected" },
+  { value: "custom", label: "Custom Selection" },
+];
+
+type ArPeriod = "3" | "6" | "12" | "all";
+
+const AR_PERIOD_OPTIONS: { value: ArPeriod; label: string }[] = [
+  { value: "3", label: "3 Months" },
+  { value: "6", label: "6 Months" },
+  { value: "12", label: "12 Months" },
+  { value: "all", label: "All Available" },
+];
+
+const AR_PERIOD_TITLE: Record<ArPeriod, string> = {
+  "3": "3-month",
+  "6": "6-month",
+  "12": "12-month",
+  all: "full-history",
+};
+
+/** Last N points of a period-sliceable series (or all of them for "all"). */
+function sliceByPeriod<T>(rows: T[], period: ArPeriod): T[] {
+  if (period === "all") return rows;
+  const n = Number(period);
+  return rows.slice(Math.max(0, rows.length - n));
+}
+
+/** One legend chip for a single department: eye-toggle (compare) + name (drill-down). */
+function ArDeptChip({
+  dept,
+  color,
+  visible,
+  isIsolated,
+  isHighlighted,
+  onToggleVisible,
+  onIsolate,
+  onHoverEnter,
+  onHoverLeave,
+}: {
+  dept: string;
+  color: string;
+  visible: boolean;
+  isIsolated: boolean;
+  isHighlighted: boolean;
+  onToggleVisible: () => void;
+  onIsolate: () => void;
+  onHoverEnter: () => void;
+  onHoverLeave: () => void;
+}) {
+  return (
+    <span
+      onMouseEnter={onHoverEnter}
+      onMouseLeave={onHoverLeave}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] transition-colors",
+        isIsolated
+          ? "border-brand/50 bg-brand/10 text-brand"
+          : isHighlighted
+            ? "border-border bg-muted text-text-primary"
+            : visible
+              ? "border-border bg-card text-text-secondary"
+              : "border-border/60 bg-muted/20 text-text-muted",
+      )}
+    >
+      <button
+        type="button"
+        onClick={onToggleVisible}
+        aria-label={visible ? `Hide ${dept} from chart` : `Show ${dept} on chart`}
+        title={visible ? `Hide ${dept} from chart` : `Show ${dept} on chart`}
+        className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full hover:bg-muted"
+      >
+        {visible ? <Eye className="size-3" /> : <EyeOff className="size-3" />}
+      </button>
+      <span
+        className="size-1.5 shrink-0 rounded-full"
+        style={{ background: color, opacity: visible ? 1 : 0.35 }}
+      />
+      <button
+        type="button"
+        onClick={onIsolate}
+        className={cn("font-medium hover:underline", !visible && "text-text-muted line-through")}
+      >
+        {dept}
+      </button>
+    </span>
+  );
+}
+
+/** Custom tooltip: department/month/AR%/MoM change for every line currently drawn. */
+function ArTooltip({
+  active,
+  payload,
+  label,
+  periodSeries,
+}: {
+  active?: boolean;
+  payload?: { dataKey?: string; value?: number; color?: string }[];
+  label?: string;
+  periodSeries: Record<string, string | number>[];
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const idx = periodSeries.findIndex((p) => p["month"] === label);
+  const rows = [...payload].sort((a, b) =>
+    a.dataKey === AR_HOSPITAL_KEY ? -1 : b.dataKey === AR_HOSPITAL_KEY ? 1 : 0,
+  );
+
+  return (
+    <div
+      className="rounded-lg border border-border bg-card px-2.5 py-2 shadow-md"
+      style={{ fontSize: 12 }}
+    >
+      <p className="mb-1.5 text-[11px] font-semibold text-text-primary">{label}</p>
+      <div className="space-y-1">
+        {rows.map((entry) => {
+          const key = entry.dataKey ?? "";
+          const value = typeof entry.value === "number" ? entry.value : null;
+          const prevRaw = idx > 0 ? periodSeries[idx - 1]?.[key] : undefined;
+          const prev = typeof prevRaw === "number" ? prevRaw : null;
+          const mom = value !== null && prev !== null ? Math.round((value - prev) * 10) / 10 : null;
+          const isHospital = key === AR_HOSPITAL_KEY;
+          return (
+            <div key={key} className="flex items-center gap-1.5 text-[11px]">
+              <span
+                className="size-1.5 shrink-0 rounded-full"
+                style={{ background: entry.color }}
+              />
+              <span
+                className={isHospital ? "font-semibold text-text-primary" : "text-text-secondary"}
+              >
+                {isHospital ? AR_HOSPITAL_LABEL : key}
+              </span>
+              <span className="ml-auto font-medium text-text-primary">
+                {value !== null ? pct(value) : "—"}
+              </span>
+              {mom !== null ? (
+                <span
+                  className={cn(
+                    "font-medium",
+                    mom > 0 ? "text-danger" : mom < 0 ? "text-success" : "text-text-muted",
+                  )}
+                >
+                  {mom > 0 ? "+" : ""}
+                  {mom.toFixed(1)} pp
+                </span>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function DepartmentalArTrendChart() {
   // This chart's pre-existing "isolate one department" state IS the department
   // dimension, so it was promoted to the global filter rather than duplicated:
-  // legend clicks here drive every other department-keyed panel on the page.
+  // clicking a department NAME here drives every other department-keyed panel
+  // on the page. This is the only interaction that drills down (per spec:
+  // visibility toggles use a separate eye-icon control, see `ArDeptChip`).
   const { department, setDepartment, clearDepartment } = useTop20Filters();
   const isolated = department;
-  // Hover is purely visual (isolates a line in the chart) and never touches the
-  // global filter or triggers the drill-down panel — only a legend click does that.
+
+  // Hover is purely visual (highlights a line in the chart) and never touches
+  // the global filter or the drill-down panel — only a name click does that.
   const [hovered, setHovered] = React.useState<string | null>(null);
   const activeLine = hovered ?? isolated;
+
+  const [viewMode, setViewMode] = React.useState<ArViewMode>("all");
+  const [period, setPeriod] = React.useState<ArPeriod>("12");
+  // Manually eye-toggled department set — only consulted by the "Custom
+  // Selection" / "Hospital Total + Selected" view modes.
+  const [manualVisible, setManualVisible] = React.useState<Set<string> | null>(null);
+
+  // Changing the underlying drill-down resets the comparison state — a
+  // manually-built set built against 8 departments doesn't mean much once
+  // the data collapses to a single isolated department (or expands again).
+  React.useEffect(() => {
+    setManualVisible(null);
+    setViewMode("all");
+  }, [department]);
 
   const { series, departments, byDepartment } = React.useMemo(() => {
     const all = hospitalRows<RevenueRow>("revenue-collection");
@@ -1181,8 +1367,89 @@ function DepartmentalArTrendChart() {
     };
   }, [department]);
 
+  // The period control slices the plotted months (and, below, the ranking
+  // math) while leaving the global department filter and every other chart
+  // untouched — it only ever narrows what THIS chart shows.
+  const periodSeries = React.useMemo(() => sliceByPeriod(series, period), [series, period]);
+
+  // Month-over-month change in outstanding AR%, per department + Hospital,
+  // computed from the last two points actually on screen (respects `period`).
+  // This is the single source of truth for every "worsening/improving" mode
+  // below — nothing here is hardcoded.
+  const momByKey = React.useMemo(() => {
+    const map = new Map<string, number>();
+    for (const key of [...departments, AR_HOSPITAL_KEY]) {
+      const points = periodSeries
+        .map((p) => p[key])
+        .filter((v): v is number => typeof v === "number");
+      if (points.length >= 2) {
+        const change = points[points.length - 1]! - points[points.length - 2]!;
+        map.set(key, Math.round(change * 10) / 10);
+      }
+    }
+    return map;
+  }, [periodSeries, departments]);
+
+  const rankedByMom = React.useMemo(
+    () =>
+      [...departments]
+        .filter((d) => momByKey.has(d))
+        .sort((a, b) => (momByKey.get(b) ?? 0) - (momByKey.get(a) ?? 0)),
+    [departments, momByKey],
+  );
+
+  const visibleDepts = React.useMemo(() => {
+    switch (viewMode) {
+      case "worsening":
+        return new Set(rankedByMom.filter((d) => (momByKey.get(d) ?? 0) > 0));
+      case "improving":
+        return new Set(rankedByMom.filter((d) => (momByKey.get(d) ?? 0) < 0));
+      case "top3-worsening":
+        return new Set(rankedByMom.filter((d) => (momByKey.get(d) ?? 0) > 0).slice(0, 3));
+      case "top3-improving":
+        return new Set(
+          [...rankedByMom]
+            .reverse()
+            .filter((d) => (momByKey.get(d) ?? 0) < 0)
+            .slice(0, 3),
+        );
+      case "hospital-selected":
+        return manualVisible ?? new Set<string>();
+      case "custom":
+        return manualVisible ?? new Set(departments);
+      case "all":
+      default:
+        return new Set(departments);
+    }
+  }, [viewMode, rankedByMom, momByKey, manualVisible, departments]);
+
+  const toggleDeptVisible = (dept: string) => {
+    setManualVisible((prev) => {
+      const base = prev ?? new Set(visibleDepts);
+      const next = new Set(base);
+      if (next.has(dept)) next.delete(dept);
+      else next.add(dept);
+      return next;
+    });
+    setViewMode((prev) => (prev === "hospital-selected" ? prev : "custom"));
+  };
+
+  const renderedDepts = departments.filter((d) => visibleDepts.has(d));
+
+  // Trend summary — always computed over every currently-loaded department
+  // (i.e. respecting the global department filter, but independent of the
+  // View dropdown's visible subset) so it reads as an honest headline rather
+  // than an artifact of whichever comparison the user happens to be viewing.
+  const worseningDepts = departments.filter((d) => (momByKey.get(d) ?? 0) > 0);
+  const worstDept =
+    rankedByMom[0] && (momByKey.get(rankedByMom[0]) ?? 0) > 0 ? rankedByMom[0] : null;
+  const worstMom = worstDept ? (momByKey.get(worstDept) ?? 0) : null;
+
   const isolatedRows = isolated
-    ? [...(byDepartment.get(isolated) ?? [])].sort((a, b) => a.isoDate.localeCompare(b.isoDate))
+    ? sliceByPeriod(
+        [...(byDepartment.get(isolated) ?? [])].sort((a, b) => a.isoDate.localeCompare(b.isoDate)),
+        period,
+      )
     : [];
 
   return (
@@ -1217,8 +1484,56 @@ function DepartmentalArTrendChart() {
         />
       ) : (
         <>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={series} margin={{ left: 0, right: 16, top: 8, bottom: 8 }}>
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <div className="flex shrink-0 items-center gap-1.5">
+              <span className="text-[11px] font-medium text-text-muted">View</span>
+              <Select value={viewMode} onValueChange={(v) => setViewMode(v as ArViewMode)}>
+                <SelectTrigger className="h-7 w-[12rem] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {AR_VIEW_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value} className="text-xs">
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <span className="text-[11px] font-medium text-text-muted">Period</span>
+              <Select value={period} onValueChange={(v) => setPeriod(v as ArPeriod)}>
+                <SelectTrigger className="h-7 w-[7.5rem] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {AR_PERIOD_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value} className="text-xs">
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+            <span className="font-medium text-text-primary">
+              {worseningDepts.length} department{worseningDepts.length === 1 ? "" : "s"} worsening
+              MoM
+            </span>
+            {worstDept && worstMom !== null ? (
+              <span className="text-text-muted">
+                · Worst deterioration:{" "}
+                <span className="font-medium text-danger">
+                  {worstDept} +{worstMom.toFixed(1)} pp
+                </span>
+              </span>
+            ) : null}
+          </div>
+
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={periodSeries} margin={{ left: 0, right: 16, top: 8, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
               <XAxis dataKey="month" tick={AXIS_TICK} tickLine={false} axisLine={false} />
               <YAxis
@@ -1229,42 +1544,15 @@ function DepartmentalArTrendChart() {
                 tickFormatter={(v: number) => `${v}%`}
                 label={{ value: "Outstanding AR %", angle: -90, fontSize: 11 }}
               />
-              <Tooltip
-                contentStyle={TOOLTIP_STYLE}
-                formatter={(value: number, name: string) => [
-                  pct(value),
-                  name === AR_HOSPITAL_KEY ? AR_HOSPITAL_LABEL : name,
-                ]}
-              />
-              <Legend
-                wrapperStyle={{ fontSize: 11 }}
-                onClick={(entry) => {
-                  const value = (entry as unknown as { value?: string }).value ?? null;
-                  // The Hospital entry is the aggregate benchmark, not a drill-down
-                  // target — clicking it just clears any department isolation.
-                  if (value === AR_HOSPITAL_LABEL) {
-                    clearDepartment();
-                    return;
-                  }
-                  // Department legend entries ARE departments, so a click sets the
-                  // global filter (this is the only interaction that drills down).
-                  setDepartment(value && value !== department ? value : null);
-                }}
-                onMouseEnter={(entry) => {
-                  const value = (entry as unknown as { value?: string }).value ?? null;
-                  setHovered(value === AR_HOSPITAL_LABEL ? AR_HOSPITAL_KEY : value);
-                }}
-                onMouseLeave={() => setHovered(null)}
-              />
-              {departments.map((dept) => (
+              <Tooltip content={<ArTooltip periodSeries={periodSeries} />} />
+              {renderedDepts.map((dept) => (
                 <Line
                   key={dept}
                   type="monotone"
                   dataKey={dept}
                   stroke={deptColor(dept)}
-                  strokeWidth={activeLine === dept ? 2.5 : 1.4}
-                  strokeOpacity={activeLine && activeLine !== dept ? 0.15 : 1}
-                  strokeDasharray="5 3"
+                  strokeWidth={activeLine === dept ? 2.25 : 1.25}
+                  strokeOpacity={activeLine && activeLine !== dept ? 0.18 : 0.85}
                   dot={false}
                   activeDot={{ r: 4 }}
                 />
@@ -1274,16 +1562,54 @@ function DepartmentalArTrendChart() {
                 dataKey={AR_HOSPITAL_KEY}
                 name={AR_HOSPITAL_LABEL}
                 stroke={PALETTE.brand}
-                strokeWidth={activeLine === AR_HOSPITAL_KEY ? 4 : 3}
-                strokeOpacity={activeLine && activeLine !== AR_HOSPITAL_KEY ? 0.15 : 1}
+                strokeWidth={activeLine === AR_HOSPITAL_KEY || !activeLine ? 3.5 : 3}
+                strokeOpacity={activeLine && activeLine !== AR_HOSPITAL_KEY ? 0.3 : 1}
                 dot={false}
                 activeDot={{ r: 5 }}
               />
             </LineChart>
           </ResponsiveContainer>
 
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onMouseEnter={() => setHovered(AR_HOSPITAL_KEY)}
+              onMouseLeave={() => setHovered(null)}
+              onClick={clearDepartment}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold transition-colors",
+                !isolated
+                  ? "border-brand bg-brand text-brand-foreground"
+                  : "border-brand/40 bg-brand/10 text-brand",
+              )}
+            >
+              <span className="size-2 rounded-full bg-current" />
+              {AR_HOSPITAL_LABEL}
+            </button>
+            {departments.map((dept) => (
+              <ArDeptChip
+                key={dept}
+                dept={dept}
+                color={deptColor(dept)}
+                visible={visibleDepts.has(dept)}
+                isIsolated={isolated === dept}
+                isHighlighted={hovered === dept}
+                onToggleVisible={() => toggleDeptVisible(dept)}
+                onIsolate={() => setDepartment(dept === department ? null : dept)}
+                onHoverEnter={() => setHovered(dept)}
+                onHoverLeave={() => setHovered(null)}
+              />
+            ))}
+          </div>
+          <p className="mt-1 text-[10px] text-text-muted">
+            Click departments to compare · Hover to highlight
+          </p>
+
           {isolated ? (
-            <DetailPanel title={`${isolated} · 12-month AR detail`} onClear={clearDepartment}>
+            <DetailPanel
+              title={`${isolated} · ${AR_PERIOD_TITLE[period]} AR detail`}
+              onClear={clearDepartment}
+            >
               <div className="max-h-52 overflow-y-auto">
                 <table className="w-full text-[11px]">
                   <thead className="sticky top-0 bg-muted/60">
@@ -1313,13 +1639,7 @@ function DepartmentalArTrendChart() {
                 </table>
               </div>
             </DetailPanel>
-          ) : (
-            <p className="mt-2 text-[11px] text-text-muted">
-              Hover a legend entry to preview its line alone. Click a department to isolate it, open
-              its 12-month detail, and filter every other department-keyed panel on this page —
-              click Hospital (total) to clear that filter.
-            </p>
-          )}
+          ) : null}
         </>
       )}
     </PanelCard>
