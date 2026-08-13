@@ -797,29 +797,18 @@ function PhysicianProductivityQuadrantChart() {
   const [selected, setSelected] = React.useState<string | null>(null);
   const { department, setDepartment, clearDepartment } = useTop20Filters();
 
-  const {
-    points,
-    medianCases,
-    medianRevenue,
-    rowsByPhysician,
-    xDomain,
-    yDomain,
-  } = React.useMemo(() => {
-    const all = hospitalRows<PhysicianActivityRow>("physician-activity");
+  const { points, medianCases, medianRevenue, rowsByPhysician, xDomain, yDomain } =
+    React.useMemo(() => {
+      const all = hospitalRows<PhysicianActivityRow>("physician-activity");
 
-    // Global department filter is applied to the raw rows BEFORE aggregation,
-    // so the bubbles and the drill-down table are the same filtered cohort.
-    const rows = department
-      ? all.filter((r) => r.department === department)
-      : all;
+      // Global department filter is applied to the raw rows BEFORE aggregation,
+      // so the bubbles and the drill-down table are the same filtered cohort.
+      const rows = department ? all.filter((r) => r.department === department) : all;
 
-    const byPhysician = groupBy(rows, (r) => r.physician);
+      const byPhysician = groupBy(rows, (r) => r.physician);
 
-    const aggregated = Array.from(byPhysician.entries()).map(
-      ([physician, physicianRows]) => {
-        const ordered = [...physicianRows].sort((a, b) =>
-          a.isoDate.localeCompare(b.isoDate),
-        );
+      const aggregated = Array.from(byPhysician.entries()).map(([physician, physicianRows]) => {
+        const ordered = [...physicianRows].sort((a, b) => a.isoDate.localeCompare(b.isoDate));
 
         const latest = ordered[ordered.length - 1];
 
@@ -834,91 +823,75 @@ function PhysicianProductivityQuadrantChart() {
           approvalRate: latest?.approvalRate ?? 0,
 
           procedures: sumBy(physicianRows, (r) => r.procedures),
-          philhealthPfClaims: sumBy(
-            physicianRows,
-            (r) => r.philhealthPfClaims,
-          ),
+          philhealthPfClaims: sumBy(physicianRows, (r) => r.philhealthPfClaims),
           avgLos: meanBy(physicianRows, (r) => r.avgLos),
         };
-      },
-    );
+      });
 
-    // Benchmark lines stay on the FULL roster.
-    // This prevents a small department from having meaningless medians.
-    const benchmarkByPhysician = groupBy(all, (r) => r.physician);
+      // Benchmark lines stay on the FULL roster.
+      // This prevents a small department from having meaningless medians.
+      const benchmarkByPhysician = groupBy(all, (r) => r.physician);
 
-    const benchmark = Array.from(benchmarkByPhysician.values()).map(
-      (physicianRows) => ({
+      const benchmark = Array.from(benchmarkByPhysician.values()).map((physicianRows) => ({
         cases: sumBy(physicianRows, (r) => r.cases),
         pfRevenue: sumBy(physicianRows, (r) => r.pfRevenue),
-      }),
-    );
+      }));
 
-    /*
-     * Calculate chart domains from the ACTUAL displayed data.
-     *
-     * Instead of:
-     *   X = 0 → max
-     *   Y = 0 → max
-     *
-     * we zoom into the range where physicians actually exist.
-     *
-     * 10% padding keeps bubbles away from the edges.
-     */
-    const getPaddedDomain = (
-      values: number[],
-      padding = 0.1,
-    ): [number, number] => {
-      if (values.length === 0) {
-        return [0, 1];
-      }
+      /*
+       * Calculate chart domains from the ACTUAL displayed data.
+       *
+       * Instead of:
+       *   X = 0 → max
+       *   Y = 0 → max
+       *
+       * we zoom into the range where physicians actually exist.
+       *
+       * 10% padding keeps bubbles away from the edges.
+       */
+      const getPaddedDomain = (values: number[], padding = 0.1): [number, number] => {
+        if (values.length === 0) {
+          return [0, 1];
+        }
 
-      const min = Math.min(...values);
-      const max = Math.max(...values);
-      const range = max - min;
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const range = max - min;
 
-      // If every value is identical, create a small artificial range.
-      if (range === 0) {
-        const buffer = Math.max(Math.abs(max) * 0.1, 1);
+        // If every value is identical, create a small artificial range.
+        if (range === 0) {
+          const buffer = Math.max(Math.abs(max) * 0.1, 1);
 
-        return [
-          Math.max(0, min - buffer),
-          max + buffer,
-        ];
-      }
+          return [Math.max(0, min - buffer), max + buffer];
+        }
 
-      return [
-        Math.max(0, min - range * padding),
-        max + range * padding,
-      ];
-    };
+        return [Math.max(0, min - range * padding), max + range * padding];
+      };
 
-    const xDomain = getPaddedDomain(
-      aggregated.map((p) => p.cases),
-      0.1,
-    );
+      const xDomain = getPaddedDomain(
+        aggregated.map((p) => p.cases),
+        0.1,
+      );
 
-    const yDomain = getPaddedDomain(
-      aggregated.map((p) => p.pfRevenue),
-      0.1,
-    );
+      const yDomain = getPaddedDomain(
+        aggregated.map((p) => p.pfRevenue),
+        0.1,
+      );
 
-    return {
-      points: aggregated,
-      medianCases: median(benchmark.map((p) => p.cases)),
-      medianRevenue: median(benchmark.map((p) => p.pfRevenue)),
-      rowsByPhysician: byPhysician,
-      xDomain,
-      yDomain,
-    };
-  }, [department]);
+      return {
+        points: aggregated,
+        medianCases: median(benchmark.map((p) => p.cases)),
+        medianRevenue: median(benchmark.map((p) => p.pfRevenue)),
+        rowsByPhysician: byPhysician,
+        xDomain,
+        yDomain,
+      };
+    }, [department]);
 
-  const activePoint =
-    points.find((p) => p.physician === selected) ?? null;
+  const activePoint = points.find((p) => p.physician === selected) ?? null;
 
   const activeRows = activePoint
-    ? [...(rowsByPhysician.get(activePoint.physician) ?? [])].sort(
-        (a, b) => a.isoDate.localeCompare(b.isoDate),
+    ? [...(rowsByPhysician.get(activePoint.physician) ?? [])].sort((a, b) =>
+        a.isoDate.localeCompare(b.isoDate),
       )
     : [];
 
@@ -939,9 +912,7 @@ function PhysicianProductivityQuadrantChart() {
 
       {points.length === 0 ? (
         <NoDataForSelection
-          what={`No physician-activity rows are recorded for ${
-            department ?? "this selection"
-          }.`}
+          what={`No physician-activity rows are recorded for ${department ?? "this selection"}.`}
         />
       ) : (
         <>
@@ -954,10 +925,7 @@ function PhysicianProductivityQuadrantChart() {
                 bottom: 16,
               }}
             >
-              <CartesianGrid
-                strokeDasharray="3 3"
-                className="stroke-border"
-              />
+              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
 
               <XAxis
                 type="number"
@@ -984,9 +952,7 @@ function PhysicianProductivityQuadrantChart() {
                 tickLine={false}
                 axisLine={false}
                 width={62}
-                tickFormatter={(v: number) =>
-                  php(v, { compact: true }).replace("PHP ", "")
-                }
+                tickFormatter={(v: number) => php(v, { compact: true }).replace("PHP ", "")}
                 label={{
                   value: "PF revenue",
                   angle: -90,
@@ -994,25 +960,12 @@ function PhysicianProductivityQuadrantChart() {
                 }}
               />
 
-              <ZAxis
-                type="number"
-                dataKey="approvalRate"
-                range={[60, 460]}
-                name="Approval rate"
-              />
+              <ZAxis type="number" dataKey="approvalRate" range={[60, 460]} name="Approval rate" />
 
               {/* Benchmark lines remain based on the full physician roster */}
-              <ReferenceLine
-                x={medianCases}
-                stroke={PALETTE.neutral}
-                strokeDasharray="4 4"
-              />
+              <ReferenceLine x={medianCases} stroke={PALETTE.neutral} strokeDasharray="4 4" />
 
-              <ReferenceLine
-                y={medianRevenue}
-                stroke={PALETTE.neutral}
-                strokeDasharray="4 4"
-              />
+              <ReferenceLine y={medianRevenue} stroke={PALETTE.neutral} strokeDasharray="4 4" />
 
               <Tooltip
                 cursor={{
@@ -1021,10 +974,7 @@ function PhysicianProductivityQuadrantChart() {
                 contentStyle={TOOLTIP_STYLE}
                 formatter={(value: number, name: string) => {
                   if (name === "PF revenue") {
-                    return [
-                      php(value, { compact: true }),
-                      name,
-                    ];
+                    return [php(value, { compact: true }), name];
                   }
 
                   if (name === "Approval rate") {
@@ -1048,9 +998,7 @@ function PhysicianProductivityQuadrantChart() {
                   const name = point.physician ?? null;
 
                   // Physician stays a chart-local drill.
-                  setSelected((prev) =>
-                    prev === name ? null : name,
-                  );
+                  setSelected((prev) => (prev === name ? null : name));
 
                   // Department propagates to the dashboard-wide filter.
                   if (point.department) {
@@ -1062,11 +1010,7 @@ function PhysicianProductivityQuadrantChart() {
                   <Cell
                     key={p.physician}
                     fill={deptColor(p.department)}
-                    fillOpacity={
-                      selected && selected !== p.physician
-                        ? 0.25
-                        : 0.75
-                    }
+                    fillOpacity={selected && selected !== p.physician ? 0.25 : 0.75}
                   />
                 ))}
               </Scatter>
@@ -1074,18 +1018,12 @@ function PhysicianProductivityQuadrantChart() {
           </ResponsiveContainer>
 
           <p className="mt-1 text-[11px] text-text-muted">
-            Quadrant lines ={" "}
-            {department
-              ? "all-department"
-              : "cohort"}{" "}
-            median cases / median PF revenue
-            {department
-              ? " (benchmark held at the full roster)"
-              : ""}
-            . Bubble size = most-recent-month approval rate.
-            Bottom-right = high volume, low revenue (possible
-            undercoding). Clicking a bubble also filters the
-            dashboard to that physician&apos;s department.
+            Quadrant lines = {department ? "all-department" : "cohort"} median cases / median PF
+            revenue
+            {department ? " (benchmark held at the full roster)" : ""}. Bubble size =
+            most-recent-month approval rate. Bottom-right = high volume, low revenue (possible
+            undercoding). Clicking a bubble also filters the dashboard to that physician&apos;s
+            department.
           </p>
 
           {activePoint ? (
@@ -1094,10 +1032,7 @@ function PhysicianProductivityQuadrantChart() {
               onClear={() => setSelected(null)}
             >
               <div className="mb-2 grid grid-cols-2 gap-x-4 sm:grid-cols-4">
-                <StatRow
-                  label="Cases"
-                  value={num(activePoint.cases)}
-                />
+                <StatRow label="Cases" value={num(activePoint.cases)} />
 
                 <StatRow
                   label="PF revenue"
@@ -1106,60 +1041,35 @@ function PhysicianProductivityQuadrantChart() {
                   })}
                 />
 
-                <StatRow
-                  label="Approval rate"
-                  value={pct(activePoint.approvalRate)}
-                />
+                <StatRow label="Approval rate" value={pct(activePoint.approvalRate)} />
 
-                <StatRow
-                  label="Procedures"
-                  value={num(activePoint.procedures)}
-                />
+                <StatRow label="Procedures" value={num(activePoint.procedures)} />
               </div>
 
               <div className="max-h-52 overflow-y-auto">
                 <table className="w-full text-[11px]">
                   <thead className="sticky top-0 bg-muted/60">
                     <tr className="text-left text-text-secondary">
-                      <th className="py-1 pr-2 font-medium">
-                        Month
-                      </th>
+                      <th className="py-1 pr-2 font-medium">Month</th>
 
-                      <th className="py-1 pr-2 text-right font-medium">
-                        Cases
-                      </th>
+                      <th className="py-1 pr-2 text-right font-medium">Cases</th>
 
-                      <th className="py-1 pr-2 text-right font-medium">
-                        Procedures
-                      </th>
+                      <th className="py-1 pr-2 text-right font-medium">Procedures</th>
 
-                      <th className="py-1 pr-2 text-right font-medium">
-                        PF revenue
-                      </th>
+                      <th className="py-1 pr-2 text-right font-medium">PF revenue</th>
 
-                      <th className="py-1 text-right font-medium">
-                        Approval
-                      </th>
+                      <th className="py-1 text-right font-medium">Approval</th>
                     </tr>
                   </thead>
 
                   <tbody>
                     {activeRows.map((r) => (
-                      <tr
-                        key={r.isoDate}
-                        className="border-t border-border/60"
-                      >
-                        <td className="py-1 pr-2">
-                          {r.isoDate.slice(0, 7)}
-                        </td>
+                      <tr key={r.isoDate} className="border-t border-border/60">
+                        <td className="py-1 pr-2">{r.isoDate.slice(0, 7)}</td>
 
-                        <td className="py-1 pr-2 text-right">
-                          {num(r.cases)}
-                        </td>
+                        <td className="py-1 pr-2 text-right">{num(r.cases)}</td>
 
-                        <td className="py-1 pr-2 text-right">
-                          {num(r.procedures)}
-                        </td>
+                        <td className="py-1 pr-2 text-right">{num(r.procedures)}</td>
 
                         <td className="py-1 pr-2 text-right">
                           {php(r.pfRevenue, {
@@ -1167,9 +1077,7 @@ function PhysicianProductivityQuadrantChart() {
                           })}
                         </td>
 
-                        <td className="py-1 text-right">
-                          {pct(r.approvalRate, 0)}
-                        </td>
+                        <td className="py-1 text-right">{pct(r.approvalRate, 0)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2457,42 +2365,24 @@ function FormularySubstitutionChart() {
 function LabTestEfficiencyChart() {
   const [selected, setSelected] = React.useState<string | null>(null);
 
-  const {
-    points,
-    medianOrders,
-    medianTat,
-    byTest,
-    xDomain,
-    yDomain,
-  } = React.useMemo(() => {
+  const { points, medianOrders, medianTat, byTest, xDomain, yDomain } = React.useMemo(() => {
     const rows = hospitalRows<LabWorkloadRow>("laboratory-workload");
 
     const grouped = groupBy(rows, (r) => r.test);
 
-    const aggregated = Array.from(grouped.entries()).map(
-      ([test, group]) => ({
-        test,
-        category: group[0]?.category ?? "—",
-        loinc: group[0]?.loinc ?? "—",
+    const aggregated = Array.from(grouped.entries()).map(([test, group]) => ({
+      test,
+      category: group[0]?.category ?? "—",
+      loinc: group[0]?.loinc ?? "—",
 
-        ordersReceived: sumBy(
-          group,
-          (r) => r.ordersReceived,
-        ),
+      ordersReceived: sumBy(group, (r) => r.ordersReceived),
 
-        // Mean of a field that is itself a monthly average
-        // (average-of-averages, per spec).
-        avgTat:
-          Math.round(
-            meanBy(group, (r) => r.avgTat) * 100,
-          ) / 100,
+      // Mean of a field that is itself a monthly average
+      // (average-of-averages, per spec).
+      avgTat: Math.round(meanBy(group, (r) => r.avgTat) * 100) / 100,
 
-        criticalResults: sumBy(
-          group,
-          (r) => r.criticalResults,
-        ),
-      }),
-    );
+      criticalResults: sumBy(group, (r) => r.criticalResults),
+    }));
 
     /*
      * Dynamically calculate the visible chart range from
@@ -2501,10 +2391,7 @@ function LabTestEfficiencyChart() {
      * This prevents the chart from wasting large amounts
      * of space below/above the actual data points.
      */
-    const getPaddedDomain = (
-      values: number[],
-      padding = 0.1,
-    ): [number, number] => {
+    const getPaddedDomain = (values: number[], padding = 0.1): [number, number] => {
       if (values.length === 0) {
         return [0, 1];
       }
@@ -2516,21 +2403,12 @@ function LabTestEfficiencyChart() {
       // If every value is identical, create a small
       // artificial range so the chart can still render.
       if (range === 0) {
-        const buffer = Math.max(
-          Math.abs(max) * 0.1,
-          1,
-        );
+        const buffer = Math.max(Math.abs(max) * 0.1, 1);
 
-        return [
-          Math.max(0, min - buffer),
-          max + buffer,
-        ];
+        return [Math.max(0, min - buffer), max + buffer];
       }
 
-      return [
-        Math.max(0, min - range * padding),
-        max + range * padding,
-      ];
+      return [Math.max(0, min - range * padding), max + range * padding];
     };
 
     const xDomain = getPaddedDomain(
@@ -2546,13 +2424,9 @@ function LabTestEfficiencyChart() {
     return {
       points: aggregated,
 
-      medianOrders: median(
-        aggregated.map((p) => p.ordersReceived),
-      ),
+      medianOrders: median(aggregated.map((p) => p.ordersReceived)),
 
-      medianTat: median(
-        aggregated.map((p) => p.avgTat),
-      ),
+      medianTat: median(aggregated.map((p) => p.avgTat)),
 
       byTest: grouped,
 
@@ -2562,10 +2436,7 @@ function LabTestEfficiencyChart() {
   }, []);
 
   const activeRows = selected
-    ? [...(byTest.get(selected) ?? [])].sort(
-        (a, b) =>
-          a.isoDate.localeCompare(b.isoDate),
-      )
+    ? [...(byTest.get(selected) ?? [])].sort((a, b) => a.isoDate.localeCompare(b.isoDate))
     : [];
 
   return (
@@ -2582,10 +2453,7 @@ function LabTestEfficiencyChart() {
             bottom: 16,
           }}
         >
-          <CartesianGrid
-            strokeDasharray="3 3"
-            className="stroke-border"
-          />
+          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
 
           <XAxis
             type="number"
@@ -2626,28 +2494,16 @@ function LabTestEfficiencyChart() {
             name="Critical results"
           />
 
-          <ReferenceLine
-            x={medianOrders}
-            stroke={PALETTE.neutral}
-            strokeDasharray="4 4"
-          />
+          <ReferenceLine x={medianOrders} stroke={PALETTE.neutral} strokeDasharray="4 4" />
 
-          <ReferenceLine
-            y={medianTat}
-            stroke={PALETTE.neutral}
-            strokeDasharray="4 4"
-          />
+          <ReferenceLine y={medianTat} stroke={PALETTE.neutral} strokeDasharray="4 4" />
 
           <Tooltip
             cursor={{
               strokeDasharray: "3 3",
             }}
             contentStyle={TOOLTIP_STYLE}
-            formatter={(
-              value: number,
-              name: string,
-              item,
-            ) => {
+            formatter={(value: number, name: string, item) => {
               const payload = (
                 item as {
                   payload?: {
@@ -2659,20 +2515,13 @@ function LabTestEfficiencyChart() {
 
               if (name === "Orders received") {
                 return [
-                  `${num(value)} (${
-                    payload?.test ?? ""
-                  } · ${
-                    payload?.category ?? ""
-                  })`,
+                  `${num(value)} (${payload?.test ?? ""} · ${payload?.category ?? ""})`,
                   name,
                 ];
               }
 
               if (name === "Avg TAT (h)") {
-                return [
-                  `${value.toFixed(2)} h`,
-                  name,
-                ];
+                return [`${value.toFixed(2)} h`, name];
               }
 
               return [num(value), name];
@@ -2691,21 +2540,14 @@ function LabTestEfficiencyChart() {
                   }
                 ).test ?? null;
 
-              setSelected((prev) =>
-                prev === test ? null : test,
-              );
+              setSelected((prev) => (prev === test ? null : test));
             }}
           >
             {points.map((p, i) => (
               <Cell
                 key={p.test}
                 fill={segmentColor(i)}
-                fillOpacity={
-                  selected &&
-                  selected !== p.test
-                    ? 0.25
-                    : 0.75
-                }
+                fillOpacity={selected && selected !== p.test ? 0.25 : 0.75}
               />
             ))}
           </Scatter>
@@ -2713,67 +2555,40 @@ function LabTestEfficiencyChart() {
       </ResponsiveContainer>
 
       <p className="mt-1 text-[11px] text-text-muted">
-        Quadrant lines = median volume / median TAT.
-        Bubble size = critical results. Top-right =
+        Quadrant lines = median volume / median TAT. Bubble size = critical results. Top-right =
         high-volume, slow tests (fix these first).
       </p>
 
       {selected ? (
-        <DetailPanel
-          title={`${selected} · 12-month history`}
-          onClear={() => setSelected(null)}
-        >
+        <DetailPanel title={`${selected} · 12-month history`} onClear={() => setSelected(null)}>
           <div className="max-h-52 overflow-y-auto">
             <table className="w-full text-[11px]">
               <thead className="sticky top-0 bg-muted/60">
                 <tr className="text-left text-text-secondary">
-                  <th className="py-1 pr-2 font-medium">
-                    Month
-                  </th>
+                  <th className="py-1 pr-2 font-medium">Month</th>
 
-                  <th className="py-1 pr-2 text-right font-medium">
-                    Received
-                  </th>
+                  <th className="py-1 pr-2 text-right font-medium">Received</th>
 
-                  <th className="py-1 pr-2 text-right font-medium">
-                    Completed
-                  </th>
+                  <th className="py-1 pr-2 text-right font-medium">Completed</th>
 
-                  <th className="py-1 pr-2 text-right font-medium">
-                    Avg TAT
-                  </th>
+                  <th className="py-1 pr-2 text-right font-medium">Avg TAT</th>
 
-                  <th className="py-1 text-right font-medium">
-                    Critical
-                  </th>
+                  <th className="py-1 text-right font-medium">Critical</th>
                 </tr>
               </thead>
 
               <tbody>
                 {activeRows.map((r) => (
-                  <tr
-                    key={r.isoDate}
-                    className="border-t border-border/60"
-                  >
-                    <td className="py-1 pr-2">
-                      {r.isoDate.slice(0, 7)}
-                    </td>
+                  <tr key={r.isoDate} className="border-t border-border/60">
+                    <td className="py-1 pr-2">{r.isoDate.slice(0, 7)}</td>
 
-                    <td className="py-1 pr-2 text-right">
-                      {num(r.ordersReceived)}
-                    </td>
+                    <td className="py-1 pr-2 text-right">{num(r.ordersReceived)}</td>
 
-                    <td className="py-1 pr-2 text-right">
-                      {num(r.ordersCompleted)}
-                    </td>
+                    <td className="py-1 pr-2 text-right">{num(r.ordersCompleted)}</td>
 
-                    <td className="py-1 pr-2 text-right">
-                      {r.avgTat.toFixed(1)} h
-                    </td>
+                    <td className="py-1 pr-2 text-right">{r.avgTat.toFixed(1)} h</td>
 
-                    <td className="py-1 text-right">
-                      {num(r.criticalResults)}
-                    </td>
+                    <td className="py-1 text-right">{num(r.criticalResults)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -3496,16 +3311,54 @@ const ANTIGENS = [
   ["mmr", "MMR"],
 ] as const;
 
+type ImmunizationSortMode =
+  "weakest-asc" | "average-asc" | "average-desc" | "population-desc" | "barangay-asc";
+
+const IMMUNIZATION_SORT_OPTIONS: { value: ImmunizationSortMode; label: string }[] = [
+  { value: "weakest-asc", label: "Weakest antigen (most at-risk first)" },
+  { value: "average-asc", label: "Average coverage (lowest first)" },
+  { value: "average-desc", label: "Average coverage (highest first)" },
+  { value: "population-desc", label: "Target population (highest first)" },
+  { value: "barangay-asc", label: "Barangay name (A–Z)" },
+];
+
+const IMMUNIZATION_SORT_NOTE: Record<ImmunizationSortMode, string> = {
+  "weakest-asc": "rows sorted by weakest antigen (fully-immunized-child proxy)",
+  "average-asc": "rows sorted by average coverage, lowest first",
+  "average-desc": "rows sorted by average coverage, highest first",
+  "population-desc": "rows sorted by target population, highest first",
+  "barangay-asc": "rows sorted alphabetically by barangay",
+};
+
 function ImmunizationCoverageMatrix() {
   const [selected, setSelected] = React.useState<{ row: number; col: number } | null>(null);
+  const [sortMode, setSortMode] = React.useState<ImmunizationSortMode>("weakest-asc");
   const { barangay, setBarangay, clearBarangay } = useTop20Filters();
 
   const { barangays, matrix, rowsByBarangay } = React.useMemo(() => {
     const all = lguRows<ImmunizationCoverageRow>("immunization-coverage-antigen-barangay");
     const rows = barangay ? all.filter((r) => r.barangay === barangay) : all;
     const weakest = (r: ImmunizationCoverageRow) => Math.min(...ANTIGENS.map(([key]) => r[key]));
-    // Sorted by the derived "fully-immunized-child proxy" (weakest antigen) — most at-risk first.
-    const sorted = [...rows].sort((a, b) => weakest(a) - weakest(b));
+    const average = (r: ImmunizationCoverageRow) =>
+      ANTIGENS.reduce((sum, [key]) => sum + r[key], 0) / ANTIGENS.length;
+
+    const sorted = [...rows].sort((a, b) => {
+      switch (sortMode) {
+        case "average-asc":
+          return average(a) - average(b);
+        case "average-desc":
+          return average(b) - average(a);
+        case "population-desc":
+          return b.targetPopulation - a.targetPopulation;
+        case "barangay-asc":
+          return a.barangay.localeCompare(b.barangay);
+        case "weakest-asc":
+        default:
+          // Sorted by the derived "fully-immunized-child proxy" (weakest antigen) — most at-risk first.
+          return weakest(a) - weakest(b);
+      }
+    });
+
     const grid: HeatCell[][] = sorted.map((r) =>
       ANTIGENS.map(([key, label]) => ({
         value: r[key],
@@ -3513,15 +3366,16 @@ function ImmunizationCoverageMatrix() {
         title: `${r.barangay} · ${label}\nCoverage ${pct(r[key])}\nWeakest antigen for this barangay: ${pct(weakest(r))}`,
       })),
     );
-    const index = new Map<string, ImmunizationCoverageRow>();
-    for (const r of rows) index.set(r.barangay, r);
     return {
       barangays: sorted.map((r) => `${r.barangay} (min ${Math.round(weakest(r))}%)`),
       matrix: grid,
       rowsByBarangay: sorted,
-      lookup: index,
     };
-  }, [barangay]);
+  }, [barangay, sortMode]);
+
+  React.useEffect(() => {
+    setSelected(null);
+  }, [sortMode]);
 
   const activeRow = selected ? (rowsByBarangay[selected.row] ?? null) : null;
   const activeAntigen = selected ? (ANTIGENS[selected.col] ?? null) : null;
@@ -3531,6 +3385,20 @@ function ImmunizationCoverageMatrix() {
       title="14. Immunization Coverage Matrix (Barangay × Antigen)"
       description="Which barangay is missing which specific vaccine — where does a targeted catch-up campaign go?"
       className={barangay ? globalFilterRing : ""}
+      action={
+        <Select value={sortMode} onValueChange={(v) => setSortMode(v as ImmunizationSortMode)}>
+          <SelectTrigger className="h-7 w-[14rem] text-xs">
+            <SelectValue placeholder="Sort barangays" />
+          </SelectTrigger>
+          <SelectContent>
+            {IMMUNIZATION_SORT_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value} className="text-xs">
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      }
     >
       {barangay ? (
         <GlobalFilterNote dimension="barangay" value={barangay} onClear={clearBarangay} />
@@ -3562,7 +3430,7 @@ function ImmunizationCoverageMatrix() {
               <RampLegend
                 from="100% covered"
                 to="60% or below"
-                note="rows sorted by weakest antigen (fully-immunized-child proxy)"
+                note={IMMUNIZATION_SORT_NOTE[sortMode]}
               />
             }
           />
@@ -3608,16 +3476,60 @@ function NcdBurdenControlChart() {
   const [selected, setSelected] = React.useState<string | null>(null);
   const { barangay, setBarangay, clearBarangay } = useTop20Filters();
 
-  const { barangays, medianIndex, medianControl } = React.useMemo(() => {
+  const { barangays, medianIndex, medianControl, xDomain, yDomain } = React.useMemo(() => {
     const all = getNcdData().barangays;
+
     // `NcdBarangay.name` IS the barangay key for this chart.
     const data = barangay ? all.filter((b) => b.name === barangay) : all;
+
+    /*
+     * Dynamically calculate the visible chart range from
+     * the actual displayed barangay values.
+     *
+     * 10% padding keeps the bubbles away from the edges
+     * while removing unnecessary blank space.
+     */
+    const getPaddedDomain = (values: number[], padding = 0.1): [number, number] => {
+      if (values.length === 0) {
+        return [0, 1];
+      }
+
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const range = max - min;
+
+      // If only one barangay is displayed, or all values
+      // are identical, create a small visible range.
+      if (range === 0) {
+        const buffer = Math.max(Math.abs(max) * 0.1, 1);
+
+        return [Math.max(0, min - buffer), max + buffer];
+      }
+
+      return [Math.max(0, min - range * padding), max + range * padding];
+    };
+
+    const xDomain = getPaddedDomain(
+      data.map((b) => b.ncdIndex),
+      0.1,
+    );
+
+    const yDomain = getPaddedDomain(
+      data.map((b) => b.controlRate),
+      0.1,
+    );
+
     return {
       barangays: data,
-      // Quadrant lines are the citywide benchmark, so they stay on all 15
-      // barangays — a one-barangay median would be the point itself.
+
+      // Quadrant lines are the citywide benchmark,
+      // so they stay on all 15 barangays.
       medianIndex: median(all.map((b) => b.ncdIndex)),
+
       medianControl: median(all.map((b) => b.controlRate)),
+
+      xDomain,
+      yDomain,
     };
   }, [barangay]);
 
@@ -3645,12 +3557,21 @@ function NcdBurdenControlChart() {
       ) : (
         <>
           <ResponsiveContainer width="100%" height={300}>
-            <ScatterChart margin={{ left: 8, right: 20, top: 8, bottom: 16 }}>
+            <ScatterChart
+              margin={{
+                left: 8,
+                right: 20,
+                top: 8,
+                bottom: 16,
+              }}
+            >
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+
               <XAxis
                 type="number"
                 dataKey="ncdIndex"
                 name="NCD index"
+                domain={xDomain}
                 tick={AXIS_TICK}
                 tickLine={false}
                 axisLine={false}
@@ -3661,40 +3582,75 @@ function NcdBurdenControlChart() {
                   offset: -8,
                 }}
               />
+
               <YAxis
                 type="number"
                 dataKey="controlRate"
                 name="Control rate"
+                domain={yDomain}
                 tick={AXIS_TICK}
                 tickLine={false}
                 axisLine={false}
                 width={48}
                 tickFormatter={(v: number) => `${v}%`}
-                label={{ value: "Control rate", angle: -90, fontSize: 11 }}
+                label={{
+                  value: "Control rate",
+                  angle: -90,
+                  fontSize: 11,
+                }}
               />
+
               <ZAxis type="number" dataKey="patientCount" range={[70, 460]} name="Patients" />
+
               <ReferenceLine x={medianIndex} stroke={PALETTE.neutral} strokeDasharray="4 4" />
+
               <ReferenceLine y={medianControl} stroke={PALETTE.neutral} strokeDasharray="4 4" />
+
               <Tooltip
-                cursor={{ strokeDasharray: "3 3" }}
+                cursor={{
+                  strokeDasharray: "3 3",
+                }}
                 contentStyle={TOOLTIP_STYLE}
                 formatter={(value: number, name: string, item) => {
-                  const payload = (item as { payload?: { name?: string } }).payload;
-                  if (name === "NCD index")
+                  const payload = (
+                    item as {
+                      payload?: {
+                        name?: string;
+                      };
+                    }
+                  ).payload;
+
+                  if (name === "NCD index") {
                     return [`${value.toFixed(1)} (${payload?.name ?? ""})`, name];
-                  if (name === "Control rate") return [pct(value), name];
+                  }
+
+                  if (name === "Control rate") {
+                    return [pct(value), name];
+                  }
+
                   return [num(value), name];
                 }}
                 labelFormatter={() => ""}
               />
+
               <Scatter
                 data={barangays}
                 cursor="pointer"
                 onClick={(entry) => {
-                  const name = (entry as unknown as { name?: string }).name ?? null;
+                  const name =
+                    (
+                      entry as unknown as {
+                        name?: string;
+                      }
+                    ).name ?? null;
+
                   setSelected((prev) => (prev === name ? null : name));
-                  // Every point IS a barangay — promote it to the global filter.
-                  if (name) setBarangay(name);
+
+                  // Every point IS a barangay —
+                  // promote it to the global filter.
+                  if (name) {
+                    setBarangay(name);
+                  }
                 }}
               >
                 {barangays.map((b) => (
@@ -3714,18 +3670,26 @@ function NcdBurdenControlChart() {
 
           <div className="mt-1 flex flex-wrap gap-3">
             <LegendDot color={LGU_COLORS.critical} label="High burden + poor control (priority)" />
+
             <LegendDot color={LGU_COLORS.ncd} label="All other barangays" />
           </div>
 
           {active ? (
             <DetailPanel title={active.name} onClear={() => setSelected(null)}>
               <StatRow label="NCD burden index" value={active.ncdIndex.toFixed(1)} />
+
               <StatRow label="Hypertension prevalence" value={pct(active.htnPrevalence)} />
+
               <StatRow label="Diabetes prevalence" value={pct(active.dmPrevalence)} />
+
               <StatRow label="Obesity prevalence" value={pct(active.obesityPrevalence)} />
+
               <StatRow label="Patients enrolled" value={num(active.patientCount)} />
+
               <StatRow label="Control rate" value={pct(active.controlRate)} />
+
               <StatRow label="Medication compliance" value={pct(active.medicationCompliance)} />
+
               <StatRow label="Referrals" value={num(active.referralCount)} />
             </DetailPanel>
           ) : (
