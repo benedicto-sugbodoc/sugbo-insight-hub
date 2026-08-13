@@ -2457,28 +2457,115 @@ function FormularySubstitutionChart() {
 function LabTestEfficiencyChart() {
   const [selected, setSelected] = React.useState<string | null>(null);
 
-  const { points, medianOrders, medianTat, byTest } = React.useMemo(() => {
+  const {
+    points,
+    medianOrders,
+    medianTat,
+    byTest,
+    xDomain,
+    yDomain,
+  } = React.useMemo(() => {
     const rows = hospitalRows<LabWorkloadRow>("laboratory-workload");
+
     const grouped = groupBy(rows, (r) => r.test);
-    const aggregated = Array.from(grouped.entries()).map(([test, group]) => ({
-      test,
-      category: group[0]?.category ?? "—",
-      loinc: group[0]?.loinc ?? "—",
-      ordersReceived: sumBy(group, (r) => r.ordersReceived),
-      // Mean of a field that is itself a monthly average (average-of-averages, per spec).
-      avgTat: Math.round(meanBy(group, (r) => r.avgTat) * 100) / 100,
-      criticalResults: sumBy(group, (r) => r.criticalResults),
-    }));
+
+    const aggregated = Array.from(grouped.entries()).map(
+      ([test, group]) => ({
+        test,
+        category: group[0]?.category ?? "—",
+        loinc: group[0]?.loinc ?? "—",
+
+        ordersReceived: sumBy(
+          group,
+          (r) => r.ordersReceived,
+        ),
+
+        // Mean of a field that is itself a monthly average
+        // (average-of-averages, per spec).
+        avgTat:
+          Math.round(
+            meanBy(group, (r) => r.avgTat) * 100,
+          ) / 100,
+
+        criticalResults: sumBy(
+          group,
+          (r) => r.criticalResults,
+        ),
+      }),
+    );
+
+    /*
+     * Dynamically calculate the visible chart range from
+     * the actual lab test values.
+     *
+     * This prevents the chart from wasting large amounts
+     * of space below/above the actual data points.
+     */
+    const getPaddedDomain = (
+      values: number[],
+      padding = 0.1,
+    ): [number, number] => {
+      if (values.length === 0) {
+        return [0, 1];
+      }
+
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const range = max - min;
+
+      // If every value is identical, create a small
+      // artificial range so the chart can still render.
+      if (range === 0) {
+        const buffer = Math.max(
+          Math.abs(max) * 0.1,
+          1,
+        );
+
+        return [
+          Math.max(0, min - buffer),
+          max + buffer,
+        ];
+      }
+
+      return [
+        Math.max(0, min - range * padding),
+        max + range * padding,
+      ];
+    };
+
+    const xDomain = getPaddedDomain(
+      aggregated.map((p) => p.ordersReceived),
+      0.1,
+    );
+
+    const yDomain = getPaddedDomain(
+      aggregated.map((p) => p.avgTat),
+      0.1,
+    );
+
     return {
       points: aggregated,
-      medianOrders: median(aggregated.map((p) => p.ordersReceived)),
-      medianTat: median(aggregated.map((p) => p.avgTat)),
+
+      medianOrders: median(
+        aggregated.map((p) => p.ordersReceived),
+      ),
+
+      medianTat: median(
+        aggregated.map((p) => p.avgTat),
+      ),
+
       byTest: grouped,
+
+      xDomain,
+      yDomain,
     };
   }, []);
 
   const activeRows = selected
-    ? [...(byTest.get(selected) ?? [])].sort((a, b) => a.isoDate.localeCompare(b.isoDate))
+    ? [...(byTest.get(selected) ?? [])].sort(
+        (a, b) =>
+          a.isoDate.localeCompare(b.isoDate),
+      )
     : [];
 
   return (
@@ -2487,12 +2574,24 @@ function LabTestEfficiencyChart() {
       description="Which lab tests combine high order volume with slow turnaround — the biggest throughput wins?"
     >
       <ResponsiveContainer width="100%" height={300}>
-        <ScatterChart margin={{ left: 8, right: 20, top: 8, bottom: 16 }}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+        <ScatterChart
+          margin={{
+            left: 8,
+            right: 20,
+            top: 8,
+            bottom: 16,
+          }}
+        >
+          <CartesianGrid
+            strokeDasharray="3 3"
+            className="stroke-border"
+          />
+
           <XAxis
             type="number"
             dataKey="ordersReceived"
             name="Orders received"
+            domain={xDomain}
             tick={AXIS_TICK}
             tickLine={false}
             axisLine={false}
@@ -2503,52 +2602,110 @@ function LabTestEfficiencyChart() {
               offset: -8,
             }}
           />
+
           <YAxis
             type="number"
             dataKey="avgTat"
             name="Avg TAT (h)"
+            domain={yDomain}
             tick={AXIS_TICK}
             tickLine={false}
             axisLine={false}
             width={48}
-            label={{ value: "Avg TAT (hours)", angle: -90, fontSize: 11 }}
+            label={{
+              value: "Avg TAT (hours)",
+              angle: -90,
+              fontSize: 11,
+            }}
           />
+
           <ZAxis
             type="number"
             dataKey="criticalResults"
             range={[70, 460]}
             name="Critical results"
           />
-          <ReferenceLine x={medianOrders} stroke={PALETTE.neutral} strokeDasharray="4 4" />
-          <ReferenceLine y={medianTat} stroke={PALETTE.neutral} strokeDasharray="4 4" />
+
+          <ReferenceLine
+            x={medianOrders}
+            stroke={PALETTE.neutral}
+            strokeDasharray="4 4"
+          />
+
+          <ReferenceLine
+            y={medianTat}
+            stroke={PALETTE.neutral}
+            strokeDasharray="4 4"
+          />
+
           <Tooltip
-            cursor={{ strokeDasharray: "3 3" }}
+            cursor={{
+              strokeDasharray: "3 3",
+            }}
             contentStyle={TOOLTIP_STYLE}
-            formatter={(value: number, name: string, item) => {
-              const payload = (item as { payload?: { test?: string; category?: string } }).payload;
-              if (name === "Orders received")
+            formatter={(
+              value: number,
+              name: string,
+              item,
+            ) => {
+              const payload = (
+                item as {
+                  payload?: {
+                    test?: string;
+                    category?: string;
+                  };
+                }
+              ).payload;
+
+              if (name === "Orders received") {
                 return [
-                  `${num(value)} (${payload?.test ?? ""} · ${payload?.category ?? ""})`,
+                  `${num(value)} (${
+                    payload?.test ?? ""
+                  } · ${
+                    payload?.category ?? ""
+                  })`,
                   name,
                 ];
-              if (name === "Avg TAT (h)") return [`${value.toFixed(2)} h`, name];
+              }
+
+              if (name === "Avg TAT (h)") {
+                return [
+                  `${value.toFixed(2)} h`,
+                  name,
+                ];
+              }
+
               return [num(value), name];
             }}
             labelFormatter={() => ""}
           />
+
           <Scatter
             data={points}
             cursor="pointer"
             onClick={(entry) => {
-              const test = (entry as unknown as { test?: string }).test ?? null;
-              setSelected((prev) => (prev === test ? null : test));
+              const test =
+                (
+                  entry as unknown as {
+                    test?: string;
+                  }
+                ).test ?? null;
+
+              setSelected((prev) =>
+                prev === test ? null : test,
+              );
             }}
           >
             {points.map((p, i) => (
               <Cell
                 key={p.test}
                 fill={segmentColor(i)}
-                fillOpacity={selected && selected !== p.test ? 0.25 : 0.75}
+                fillOpacity={
+                  selected &&
+                  selected !== p.test
+                    ? 0.25
+                    : 0.75
+                }
               />
             ))}
           </Scatter>
@@ -2556,31 +2713,67 @@ function LabTestEfficiencyChart() {
       </ResponsiveContainer>
 
       <p className="mt-1 text-[11px] text-text-muted">
-        Quadrant lines = median volume / median TAT. Bubble size = critical results. Top-right =
+        Quadrant lines = median volume / median TAT.
+        Bubble size = critical results. Top-right =
         high-volume, slow tests (fix these first).
       </p>
 
       {selected ? (
-        <DetailPanel title={`${selected} · 12-month history`} onClear={() => setSelected(null)}>
+        <DetailPanel
+          title={`${selected} · 12-month history`}
+          onClear={() => setSelected(null)}
+        >
           <div className="max-h-52 overflow-y-auto">
             <table className="w-full text-[11px]">
               <thead className="sticky top-0 bg-muted/60">
                 <tr className="text-left text-text-secondary">
-                  <th className="py-1 pr-2 font-medium">Month</th>
-                  <th className="py-1 pr-2 text-right font-medium">Received</th>
-                  <th className="py-1 pr-2 text-right font-medium">Completed</th>
-                  <th className="py-1 pr-2 text-right font-medium">Avg TAT</th>
-                  <th className="py-1 text-right font-medium">Critical</th>
+                  <th className="py-1 pr-2 font-medium">
+                    Month
+                  </th>
+
+                  <th className="py-1 pr-2 text-right font-medium">
+                    Received
+                  </th>
+
+                  <th className="py-1 pr-2 text-right font-medium">
+                    Completed
+                  </th>
+
+                  <th className="py-1 pr-2 text-right font-medium">
+                    Avg TAT
+                  </th>
+
+                  <th className="py-1 text-right font-medium">
+                    Critical
+                  </th>
                 </tr>
               </thead>
+
               <tbody>
                 {activeRows.map((r) => (
-                  <tr key={r.isoDate} className="border-t border-border/60">
-                    <td className="py-1 pr-2">{r.isoDate.slice(0, 7)}</td>
-                    <td className="py-1 pr-2 text-right">{num(r.ordersReceived)}</td>
-                    <td className="py-1 pr-2 text-right">{num(r.ordersCompleted)}</td>
-                    <td className="py-1 pr-2 text-right">{r.avgTat.toFixed(1)} h</td>
-                    <td className="py-1 text-right">{num(r.criticalResults)}</td>
+                  <tr
+                    key={r.isoDate}
+                    className="border-t border-border/60"
+                  >
+                    <td className="py-1 pr-2">
+                      {r.isoDate.slice(0, 7)}
+                    </td>
+
+                    <td className="py-1 pr-2 text-right">
+                      {num(r.ordersReceived)}
+                    </td>
+
+                    <td className="py-1 pr-2 text-right">
+                      {num(r.ordersCompleted)}
+                    </td>
+
+                    <td className="py-1 pr-2 text-right">
+                      {r.avgTat.toFixed(1)} h
+                    </td>
+
+                    <td className="py-1 text-right">
+                      {num(r.criticalResults)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2591,7 +2784,6 @@ function LabTestEfficiencyChart() {
     </PanelCard>
   );
 }
-
 /* -------------------------------------------------------------------------
  * 11. Discharge Readiness Blockers
  * Source: DischargeAuditRow (R-10 `discharge-clearance-audit`)
