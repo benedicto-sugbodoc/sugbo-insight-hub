@@ -93,6 +93,9 @@ import {
   ZAxis,
 } from "recharts";
 import { sankey as d3Sankey, sankeyLinkHorizontal, type SankeyGraph } from "d3-sankey";
+import { curveLinearClosed, line as d3Line } from "d3-shape";
+import { scaleLinear } from "d3-scale";
+import { interpolateRgb } from "d3-interpolate";
 import { Eye, EyeOff } from "lucide-react";
 
 import {
@@ -114,11 +117,9 @@ import {
   php,
 } from "@/components/analytics/shared";
 import {
-  BarangayChoropleth,
   LGU_COLORS,
   StageFlow,
   choroplethColor,
-  type BarangayDatum,
   type FlowStage,
 } from "@/components/analytics/lgu-shared";
 import {
@@ -130,6 +131,7 @@ import { PH_DEPARTMENT_COLORS } from "@/lib/analytics/ph-constants";
 import { getExecutiveData } from "@/lib/analytics/executive.mock";
 import { cohortPatients } from "@/lib/analytics/cohort.mock";
 import { getNcdData } from "@/lib/analytics/lgu/ncd.mock";
+import { BARANGAYS, type Barangay } from "@/lib/analytics/lgu/shared.mock";
 import { getHospitalReport } from "@/lib/reports/hospital.mock";
 import { getLguReport } from "@/lib/reports/lgu.mock";
 import { cn } from "@/lib/utils";
@@ -2902,21 +2904,400 @@ function ReadmissionMatrixChart() {
 /* -------------------------------------------------------------------------
  * G. Geographic Overview — Barangay Risk & Burden
  *
- * The "geographic map" requirement, solved the way the rest of this codebase
- * already solves it. There is no GeoJSON, boundary file or lat/long anywhere in
- * the project (`schema.md`'s Barangay table has no geometry columns) and
- * external map APIs are out of scope, so this reuses `BarangayChoropleth` from
- * `lgu-shared.tsx` — the stylized tile grid the LGU dashboards already ship —
- * rather than inventing a second, inconsistent geographic component.
+ * The "geographic map" requirement, solved honestly: there is no GeoJSON,
+ * boundary file or lat/long anywhere in the project (`schema.md`'s Barangay
+ * table has no geometry columns) and external map APIs are out of scope. So
+ * rather than a grid of tiles standing in for a map, this renders an actual
+ * Voronoi (Thiessen) tessellation — the same technique real GIS tools use to
+ * approximate service-catchment boundaries from point locations when no
+ * boundary survey exists, which is exactly this panel's situation. The 15
+ * barangays are laid out deterministically, clustered by their real BHC
+ * catchment (`BARANGAYS` in `lib/analytics/lgu/shared.mock.ts`), and the
+ * polygons are computed with a small hand-rolled half-plane-clipping Voronoi
+ * (see `voronoiCells` below) rather than pulling in `d3-delaunay` — 15 points
+ * doesn't need it. Path generation uses `d3-shape` (`line` + `curveLinearClosed`)
+ * and the choropleth fill uses a real `d3-scale` continuous scale, so the "do
+ * it in D3" part is genuine, not decorative. Zoom/pan/hover/click are plain
+ * React-controlled SVG transforms rather than `d3-zoom`/`d3-selection` — this
+ * codebase is React-first everywhere else, and imperative DOM writes would be
+ * the odd one out here.
  *
  * The tile value is chart 19's household vulnerability composite, verbatim:
  * (diabetes + hypertension + TB + dependents) as a % of barangay members. It
  * was picked over chart 15's NCD index because it is already a single 0-100
- * number per barangay — exactly `BarangayDatum.value`'s shape — so the panel
- * adds no new blended index of its own, and because it covers all 15 barangays.
+ * number per barangay, and because it covers all 15 barangays.
  * ----------------------------------------------------------------------- */
+type Pt = [number, number];
+
+const MAP_VIEWBOX_W = 600;
+const MAP_VIEWBOX_H = 440;
+const MAP_CENTER: Pt = [300, 210];
+const MAP_RING_RADIUS = 150;
+const MAP_CLUSTER_RADIUS = 58;
+const MAP_BOUNDS: Pt[] = [
+  [-40, -40],
+  [MAP_VIEWBOX_W + 40, -40],
+  [MAP_VIEWBOX_W + 40, MAP_VIEWBOX_H + 40],
+  [-40, MAP_VIEWBOX_H + 40],
+];
+
+/** Deterministic pseudo-random in [0,1) — local to this map, no `Math.random` (SSR-safe). */
+function geoSeeded(i: number, salt = 1): number {
+  const x = Math.sin((i + 1) * 12.9898 * salt + salt * 4.1357 + 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/**
+ * Deterministic, catchment-clustered point layout for the 15 barangays.
+ * These are synthetic coordinates — but not arbitrary ones: barangays are
+ * placed in 5 clusters (one per real BHC catchment) around a ring, each with
+ * a small deterministic jitter, so the resulting Voronoi cells read as an
+ * organic district map rather than a mechanical grid or a random scatter.
+ */
+function buildBarangaySites(): Map<string, Pt> {
+  const byBhc = new Map<string, Barangay[]>();
+  for (const b of BARANGAYS) {
+    const list = byBhc.get(b.bhcId) ?? [];
+    list.push(b);
+    byBhc.set(b.bhcId, list);
+  }
+  const catchmentIds = [...byBhc.keys()];
+  const sites = new Map<string, Pt>();
+
+  catchmentIds.forEach((bhcId, ci) => {
+    const angle = ((-90 + ci * (360 / catchmentIds.length)) * Math.PI) / 180;
+    const ccx = MAP_CENTER[0] + MAP_RING_RADIUS * Math.cos(angle);
+    const ccy = MAP_CENTER[1] + MAP_RING_RADIUS * Math.sin(angle);
+    const members = byBhc.get(bhcId) ?? [];
+    members.forEach((b, bi) => {
+      const seedIndex = ci * 3 + bi;
+      const jitterAngleDeg = geoSeeded(seedIndex, 3) * 40 - 20;
+      const jitterRadius = geoSeeded(seedIndex, 7) * 18 - 9;
+      const localAngle = ((bi * 120 + ci * 23 + jitterAngleDeg) * Math.PI) / 180;
+      const radius = MAP_CLUSTER_RADIUS + jitterRadius;
+      sites.set(b.name, [ccx + radius * Math.cos(localAngle), ccy + radius * Math.sin(localAngle)]);
+    });
+  });
+  return sites;
+}
+
+/** Sutherland–Hodgman clip of `poly` to the half-plane {p : (p-m)·(nx,ny) >= 0}. */
+function clipHalfPlane(poly: Pt[], mx: number, my: number, nx: number, ny: number): Pt[] {
+  if (poly.length === 0) return poly;
+  const out: Pt[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const curr = poly[i]!;
+    const prev = poly[(i - 1 + poly.length) % poly.length]!;
+    const currSide = (curr[0] - mx) * nx + (curr[1] - my) * ny;
+    const prevSide = (prev[0] - mx) * nx + (prev[1] - my) * ny;
+    if (currSide >= 0) {
+      if (prevSide < 0) {
+        const t = prevSide / (prevSide - currSide);
+        out.push([prev[0] + t * (curr[0] - prev[0]), prev[1] + t * (curr[1] - prev[1])]);
+      }
+      out.push(curr);
+    } else if (prevSide >= 0) {
+      const t = prevSide / (prevSide - currSide);
+      out.push([prev[0] + t * (curr[0] - prev[0]), prev[1] + t * (curr[1] - prev[1])]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Hand-rolled Voronoi tessellation: for each site, intersect a bounding
+ * rectangle with the half-plane closer to that site than to every other
+ * site. O(sites²), which is irrelevant at 15 points — not worth a
+ * `d3-delaunay` dependency for.
+ */
+function voronoiCells(sites: Pt[]): Pt[][] {
+  return sites.map((site) => {
+    let poly = MAP_BOUNDS;
+    for (const other of sites) {
+      if (other === site) continue;
+      const mx = (site[0] + other[0]) / 2;
+      const my = (site[1] + other[1]) / 2;
+      const nx = site[0] - other[0];
+      const ny = site[1] - other[1];
+      poly = clipHalfPlane(poly, mx, my, nx, ny);
+      if (poly.length === 0) break;
+    }
+    return poly;
+  });
+}
+
+function polygonCentroid(poly: Pt[]): Pt {
+  if (poly.length === 0) return [0, 0];
+  let x = 0;
+  let y = 0;
+  for (const p of poly) {
+    x += p[0];
+    y += p[1];
+  }
+  return [x / poly.length, y / poly.length];
+}
+
+interface GeoTile {
+  id: string;
+  name: string;
+  bhc: string;
+  bhcId: string;
+  value: number;
+  display: string;
+  alert: boolean;
+}
+
+/** 5 catchment border colors — distinct from `LGU_COLORS.critical`/`.warning`, which stay reserved for alert state. */
+const CATCHMENT_COLORS = [
+  PALETTE.brand,
+  PALETTE.hmo,
+  PALETTE.success,
+  PALETTE.gold,
+  PALETTE.gsis,
+] as const;
+
+const voronoiPath = d3Line<Pt>()
+  .x((d) => d[0])
+  .y((d) => d[1])
+  .curve(curveLinearClosed);
+
+/** Interactive Voronoi "map": zoom (wheel + buttons), pan (drag), hover highlight, click-to-drill. */
+function BarangayVoronoiMap({
+  tiles,
+  selected,
+  onSelect,
+}: {
+  tiles: GeoTile[];
+  selected: string | null;
+  onSelect: (name: string) => void;
+}) {
+  const [hovered, setHovered] = React.useState<string | null>(null);
+  const [view, setView] = React.useState({ scale: 1, tx: 0, ty: 0 });
+  const dragState = React.useRef<{
+    startX: number;
+    startY: number;
+    startTx: number;
+    startTy: number;
+    dragged: boolean;
+  } | null>(null);
+  const suppressClickRef = React.useRef(false);
+
+  const sites = React.useMemo(buildBarangaySites, []);
+  const bhcIds = uniq(tiles.map((t) => t.bhcId));
+  const catchmentColor = (bhcId: string) =>
+    CATCHMENT_COLORS[bhcIds.indexOf(bhcId) % CATCHMENT_COLORS.length] ?? PALETTE.neutral;
+
+  const cells = React.useMemo(() => {
+    const points: Pt[] = tiles.map((t) => sites.get(t.name) ?? MAP_CENTER);
+    const polys = voronoiCells(points);
+    return tiles.map((t, i) => ({
+      tile: t,
+      poly: polys[i] ?? [],
+      centroid: polygonCentroid(polys[i] ?? []),
+    }));
+  }, [tiles, sites]);
+
+  const maxValue = Math.max(...tiles.map((t) => t.value), 1);
+  const fillScale = React.useMemo(
+    () =>
+      scaleLinear<string>().domain([0, maxValue]).range(["#ffffff", PALETTE.brand]).interpolate(interpolateRgb),
+    [maxValue],
+  );
+
+  const clampScale = (s: number) => Math.min(4, Math.max(0.85, s));
+
+  const zoomBy = (factor: number, cx: number, cy: number) => {
+    setView((prev) => {
+      const next = clampScale(prev.scale * factor);
+      const k = next / prev.scale;
+      return { scale: next, tx: cx - k * (cx - prev.tx), ty: cy - k * (cy - prev.ty) };
+    });
+  };
+
+  const handleWheel = (e: React.WheelEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const px = ((e.clientX - rect.left) / rect.width) * MAP_VIEWBOX_W;
+    const py = ((e.clientY - rect.top) / rect.height) * MAP_VIEWBOX_H;
+    zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, px, py);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    dragState.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startTx: view.tx,
+      startTy: view.ty,
+      dragged: false,
+    };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const drag = dragState.current;
+    if (!drag) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) drag.dragged = true;
+    if (drag.dragged) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const kx = MAP_VIEWBOX_W / rect.width;
+      const ky = MAP_VIEWBOX_H / rect.height;
+      setView((prev) => ({ ...prev, tx: drag.startTx + dx * kx, ty: drag.startTy + dy * ky }));
+    }
+  };
+
+  const endDrag = () => {
+    if (dragState.current?.dragged) suppressClickRef.current = true;
+    dragState.current = null;
+  };
+
+  const resetView = () => setView({ scale: 1, tx: 0, ty: 0 });
+
+  return (
+    <div className="relative">
+      <div className="absolute right-1 top-1 z-10 flex gap-1">
+        <button
+          type="button"
+          onClick={() => zoomBy(1.3, MAP_VIEWBOX_W / 2, MAP_VIEWBOX_H / 2)}
+          aria-label="Zoom in"
+          title="Zoom in"
+          className="flex size-6 items-center justify-center rounded border border-border bg-card text-xs font-semibold text-text-secondary hover:bg-muted"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          onClick={() => zoomBy(1 / 1.3, MAP_VIEWBOX_W / 2, MAP_VIEWBOX_H / 2)}
+          aria-label="Zoom out"
+          title="Zoom out"
+          className="flex size-6 items-center justify-center rounded border border-border bg-card text-xs font-semibold text-text-secondary hover:bg-muted"
+        >
+          −
+        </button>
+        <button
+          type="button"
+          onClick={resetView}
+          aria-label="Reset view"
+          title="Reset view"
+          className="flex h-6 items-center justify-center rounded border border-border bg-card px-1.5 text-[10px] font-medium text-text-secondary hover:bg-muted"
+        >
+          Reset
+        </button>
+      </div>
+
+      <svg
+        viewBox={`0 0 ${MAP_VIEWBOX_W} ${MAP_VIEWBOX_H}`}
+        className="w-full touch-none select-none rounded-lg border border-border bg-muted/20"
+        style={{ height: 340, cursor: dragState.current ? "grabbing" : "grab" }}
+        onWheel={handleWheel}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={endDrag}
+        onPointerLeave={endDrag}
+      >
+        <g transform={`translate(${view.tx} ${view.ty}) scale(${view.scale})`}>
+          {cells.map(({ tile, poly, centroid }) => {
+            const d = voronoiPath(poly) ?? "";
+            const isHovered = hovered === tile.name;
+            const isSelected = selected === tile.name;
+            const fill = tile.alert ? LGU_COLORS.critical : fillScale(tile.value);
+            const light = !tile.alert && tile.value / maxValue < 0.55;
+            return (
+              <g
+                key={tile.id}
+                onClick={() => {
+                  if (suppressClickRef.current) {
+                    suppressClickRef.current = false;
+                    return;
+                  }
+                  onSelect(tile.name);
+                }}
+                onMouseEnter={() => setHovered(tile.name)}
+                onMouseLeave={() => setHovered(null)}
+                className="cursor-pointer"
+              >
+                <path
+                  d={d}
+                  fill={fill}
+                  stroke={isSelected ? PALETTE.brand : catchmentColor(tile.bhcId)}
+                  strokeWidth={isSelected ? 3 : isHovered ? 2.25 : 1.25}
+                  style={{ transition: "stroke-width 120ms ease" }}
+                  opacity={isHovered ? 0.92 : 1}
+                />
+                <text
+                  x={centroid[0]}
+                  y={centroid[1] - 3}
+                  textAnchor="middle"
+                  className="pointer-events-none select-none"
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 600,
+                    fill: light ? "var(--color-text-primary, #111)" : "#fff",
+                  }}
+                >
+                  {tile.name}
+                </text>
+                <text
+                  x={centroid[0]}
+                  y={centroid[1] + 8}
+                  textAnchor="middle"
+                  className="pointer-events-none select-none"
+                  style={{ fontSize: 8, fill: light ? "var(--color-text-muted, #666)" : "rgba(255,255,255,0.85)" }}
+                >
+                  {tile.display}
+                </text>
+                {tile.alert ? (
+                  <circle
+                    cx={centroid[0] + 26}
+                    cy={centroid[1] - 12}
+                    r={3}
+                    fill="#fff"
+                    stroke={LGU_COLORS.critical}
+                    strokeWidth={1.5}
+                  />
+                ) : null}
+              </g>
+            );
+          })}
+        </g>
+      </svg>
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-muted">
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="h-2 w-8 rounded-full"
+            style={{
+              background: `linear-gradient(to right, #ffffff, ${PALETTE.brand})`,
+              border: "1px solid var(--color-border)",
+            }}
+          />
+          Low → high burden
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="size-2.5 rounded-full" style={{ backgroundColor: LGU_COLORS.critical }} />
+          Top-quartile / critical
+        </span>
+        {bhcIds.map((id) => {
+          const label = tiles.find((t) => t.bhcId === id)?.bhc ?? id;
+          return (
+            <span key={id} className="inline-flex items-center gap-1">
+              <span className="size-2.5 rounded-sm" style={{ backgroundColor: catchmentColor(id) }} />
+              {label}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function GeographicOverviewPanel() {
   const { barangay, setBarangay, clearBarangay, bhcForBarangay } = useTop20Filters();
+  const barangayIndex = React.useMemo(() => {
+    const index = new Map<string, Barangay>();
+    for (const b of BARANGAYS) index.set(b.name, b);
+    return index;
+  }, []);
 
   const { tiles, profiles, alertThreshold } = React.useMemo(() => {
     const raw = lguRows<HouseholdProfileRow>("community-household-health-profile");
@@ -2931,24 +3312,29 @@ function GeographicOverviewPanel() {
       };
     });
 
-    // Top-quartile burden gets the choropleth's critical flag (red outline).
+    // Top-quartile burden gets the map's critical flag (red fill).
     const ranked = [...scored].sort((a, b) => b.burden - a.burden);
     const cutIndex = Math.max(0, Math.ceil(ranked.length / 4) - 1);
     const threshold = ranked[cutIndex]?.burden ?? Number.POSITIVE_INFINITY;
 
-    const data: BarangayDatum[] = scored.map((s) => ({
-      id: `brgy-tile-${s.row.barangay.toLowerCase().replace(/\s+/g, "-")}`,
-      name: s.row.barangay,
-      value: s.burden,
-      display: pct(s.burden, 1),
-      alert: s.burden >= threshold,
-    }));
+    const data: GeoTile[] = scored.map((s) => {
+      const meta = barangayIndex.get(s.row.barangay);
+      return {
+        id: `brgy-tile-${s.row.barangay.toLowerCase().replace(/\s+/g, "-")}`,
+        name: s.row.barangay,
+        bhc: meta?.bhc ?? "—",
+        bhcId: meta?.bhcId ?? "unknown",
+        value: s.burden,
+        display: pct(s.burden, 1),
+        alert: s.burden >= threshold,
+      };
+    });
 
     const index = new Map<string, HouseholdProfileRow>();
     for (const s of scored) index.set(s.row.barangay, s.row);
 
     return { tiles: data, profiles: index, alertThreshold: threshold };
-  }, []);
+  }, [barangayIndex]);
 
   const selectedProfile = barangay ? (profiles.get(barangay) ?? null) : null;
   const selectedTile = barangay ? (tiles.find((t) => t.name === barangay) ?? null) : null;
@@ -2976,14 +3362,15 @@ function GeographicOverviewPanel() {
         />
       ) : null}
 
-      <BarangayChoropleth data={tiles} onSelect={(d) => setBarangay(d.name)} />
+      <BarangayVoronoiMap tiles={tiles} selected={barangay} onSelect={(name) => setBarangay(name)} />
 
       <p className="mt-2 text-[11px] text-text-muted">
-        Tile shade = household vulnerability index (diabetes + hypertension + TB + dependents, as a
-        share of barangay members — the same composite as chart 19). Red-outlined tiles are the
-        top-quartile burden ({pct(alertThreshold, 1)} and above). Click a tile to filter every
-        barangay- and BHC-keyed panel below. Tile positions are a stylized grid, not real geography
-        — this project ships no boundary/geometry data and uses no external map service.
+        Fill = household vulnerability index (diabetes + hypertension + TB + dependents, as a share
+        of barangay members — the same composite as chart 19); red fill is the top-quartile burden
+        ({pct(alertThreshold, 1)} and above). Border color groups barangays by BHC catchment. Scroll
+        to zoom, drag to pan, click a district to filter every barangay- and BHC-keyed panel below.
+        District shapes are a Voronoi tessellation of a synthetic, catchment-clustered layout — this
+        project ships no boundary/geometry data and calls no external map service.
       </p>
 
       {selectedProfile && selectedTile ? (
